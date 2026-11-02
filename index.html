@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Chess vs ChatGPT (GothamChess edition)</title>
+<script src="coi-serviceworker.js"></script>
+<style>
+:root{--bg:#f4f1ea;--fg:#222;--l:#f0d9b5;--d:#b58863;--sel:#f6f669;--card:#fff;--mut:#666;--bad:#c0392b;--s:min(11.5vw,60px);box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#1d1c1a;--fg:#eee;--card:#2a2926;--mut:#aaa;--bad:#ff7b6b}}
+:root[data-theme="dark"]{--bg:#1d1c1a;--fg:#eee;--card:#2a2926;--mut:#aaa;--bad:#ff7b6b}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,"Segoe UI",sans-serif;display:flex;flex-direction:column;align-items:center;padding:12px}
+h1{font-size:1.2rem;margin:4px 0}
+.sub{color:var(--mut);font-size:.85rem;margin-bottom:8px;text-align:center}
+#board{width:calc(var(--s)*8);height:calc(var(--s)*8);display:grid;grid-template-columns:repeat(8,var(--s));grid-template-rows:repeat(8,var(--s));border:3px solid var(--fg);border-radius:3px}
+.sq{width:var(--s);height:var(--s);display:flex;align-items:center;justify-content:center;cursor:pointer;position:relative;user-select:none}
+.sq img{width:92%;height:92%;pointer-events:none}
+.l{background:var(--l)}.dk{background:var(--d)}
+.sel{background:var(--sel)!important}
+.hint::after{content:"";position:absolute;width:28%;height:28%;border-radius:50%;background:rgba(0,0,0,.28)}
+.last{box-shadow:inset 0 0 0 3px var(--bad)}
+#status{margin:10px 0 4px;font-weight:600;text-align:center;min-height:1.4em}
+button{background:var(--fg);color:var(--bg);border:0;border-radius:6px;padding:8px 14px;font-size:.9rem;cursor:pointer;margin:6px 0}
+#rvp{width:calc(var(--s)*8);background:var(--card);border-radius:8px;padding:8px 12px;margin-top:8px;font-size:.85rem}#rvp:empty{display:none}
+.row2{display:flex;gap:6px;flex-wrap:wrap;justify-content:center}.row2 button{padding:7px 10px;font-size:.8rem}
+.bd{display:inline-block;min-width:28px;text-align:center;border-radius:10px;color:#fff;font-size:.72rem;padding:1px 5px;font-weight:700}
+.sm{width:100%;border-collapse:collapse}.sm td,.sm th{padding:2px 4px;text-align:left}.mv{max-height:260px;overflow-y:auto;margin-top:6px}.mv div{padding:2px 0}
+#log{width:calc(var(--s)*8);background:var(--card);border-radius:8px;padding:8px 12px;max-height:200px;overflow-y:auto;font-size:.85rem}
+#log p{margin:4px 0}#log .ill{color:var(--bad);font-weight:600}
+</style>
+<body>
+<h1>♟ Chess vs ChatGPT</h1>
+<div class="sub">You are White. ChatGPT opens normally, then falls apart like in GothamChess videos.</div>
+<div id="board"></div>
+<div id="status"></div>
+<div class="row2"><button id="nw">New game</button><button id="m1">You vs ChatGPT</button><button id="m2">Stockfish vs ChatGPT</button><button id="rv">Game review</button></div><div class="row2" style="margin-top:6px"><label>Engine: <select id="eng"><option value="18">Stockfish 18</option><option value="19">Stockfish 19</option><option value="0">Built-in (weak)</option></select></label></div><div id="es" class="sub">Stockfish loads when you press “Stockfish vs ChatGPT” or “Game review”.</div><div id="rvp"></div>
+<div id="log"></div>
+<script src="sprites-1.js"></script>
+<script src="sprites-2.js"></script>
+<script src="sprites-3.js"></script>
+<script src="game.js"></script>
+</body></html>
