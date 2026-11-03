@@ -35,4 +35,9 @@ button{background:var(--fg);color:var(--bg);border:0;border-radius:6px;padding:8
 <div class="row2"><button id="nw">New game</button><button id="m1">You vs ChatGPT</button><button id="m2">Stockfish vs ChatGPT</button><button id="rv">Game review</button></div><div class="row2" style="margin-top:6px"><label>Engine: <select id="eng"><option value="18">Stockfish 18</option><option value="19">Stockfish 19</option><option value="0">Built-in (weak)</option></select></label></div><div id="es" class="sub">Stockfish loads when you press “Stockfish vs ChatGPT” or “Game review”.</div><div id="rvp"></div>
 <div id="log"></div>
 <script src="game.js"></script>
+<script>
+// Replaces the white bishop and black queen pictures with chess symbols.
+Object.assign(IMG,{"wB":"data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'><text x='20' y='33' font-size='36' text-anchor='middle' fill='%23fff' stroke='%23000' stroke-width='1.4'>%E2%99%97</text></svg>","bQ":"data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'><text x='20' y='33' font-size='36' text-anchor='middle' fill='%23111' stroke='%23fff' stroke-width='1.2'>%E2%99%9B</text></svg>"});
+render();
+</script>
 </body></html>
