@@ -126,4 +126,29 @@ $('pp').onclick=ppStart;
 $('m1').onclick=e=>{pp=0;m1Old(e)};
 $('m2').onclick=e=>{pp=0;m2Old(e)};
 </script>
+<script>
+// Faster Stockfish review: about 0.25 seconds of thinking per move instead of a full depth-14 search.
+async function reviewFast(){
+  const H=hist.slice(),box=$('rvp'),E=epoch;
+  if(H.length<2){box.textContent='Play a few moves first.';return}
+  box.textContent='Starting the engine…';
+  await ensureEngine();
+  if(E!=epoch)return;
+  if(!W)return reviewBI();
+  const P=H.map(x=>x.pre).concat([cp(b)]);
+  const sd=i=>i<H.length?H[i].col:(H[H.length-1].col=='w'?'b':'w');
+  const ev=[];
+  for(let i=0;i<P.length;i++){
+    if(E!=epoch)return;
+    box.textContent=`${eng} is reviewing… position ${i+1}/${P.length} (fast)`;
+    const s=sd(i);
+    const ok=P[i].indexOf('wK')>=0&&P[i].indexOf('bK')>=0&&legal(P[i],s).length;
+    if(!ok){ev.push({sc:(P[i].indexOf(s+'K')<0||inChk(P[i],s))?-10000:0});continue}
+    const r=await ask(fenOf(P[i],s),'go movetime 250',1);
+    ev.push({sc:r.L[1]?r.L[1].sc:0,sc2:null,best:r.best});
+  }
+  const out=[];H.forEach((x,i)=>out.push(analyzeSF(H,ev,i,out[i-1])));showRev(H,out);
+}
+$('rv').onclick=reviewFast;
+</script>
 </body></html>
