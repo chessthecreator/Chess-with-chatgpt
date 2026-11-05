@@ -155,16 +155,6 @@ $('rv').onclick=reviewFast;
 // Review viewer: click a move in the review list to see the board after it, with its label.
 let rvState=null,rvView=0,rvSavedLast=[],rvSavedStatus='';
 document.addEventListener('click',e=>{if(e.target.closest&&e.target.closest('#nw,#pp,#m1,#m2'))rvView=0},true);
-function renderList(){const r=rvState,box=$('rvp');if(!r)return;const H=r.H,out=r.out;
-  const nm=[sfMode?eng:'You','ChatGPT'],S={w:{},b:{},wa:[],ba:[]};
-  out.forEach((o,i)=>{const c=H[i].col;S[c][o.c]=(S[c][o.c]||0)+1;if(o.loss!=null)S[c+'a'].push(103.17*Math.exp(-4.354*o.loss)-3.17)});
-  const acc=a=>a.length?Math.max(0,a.reduce((x,y)=>x+y,0)/a.length).toFixed(1)+'%':'–';
-  let t=`<b>Game review</b> <small>(${revName})</small><div style="margin:6px 0"><button id="rvPrev">◀ Prev</button> <button id="rvNext">Next ▶</button> <button id="rvBack">Back to game</button></div><table class="sm"><tr><th></th><th>${nm[0]}</th><th>${nm[1]}</th></tr><tr><td>Accuracy</td><td>${acc(S.wa)}</td><td>${acc(S.ba)}</td></tr>`;
-  for(const k in CL)t+=`<tr><td><span class="bd" style="background:${CL[k][1]}">${CL[k][0]||'✓'}</span> ${CL[k][2]}</td><td>${S.w[k]||0}</td><td>${S.b[k]||0}</td></tr>`;
-  t+='</table><div class="mv">';
-  out.forEach((o,i)=>{const x=H[i],k=CL[o.c],pc=x.pre[x.f]?NM[x.pre[x.f][1]]:'piece',bad=['inacc','mistake','miss','blunder'].includes(o.c),on=rvView&&i==r.cur;
-    t+=`<div data-i="${i}" style="cursor:pointer;padding:3px 4px;border-radius:4px;${on?'background:var(--sel);color:#222':''}"><span class="bd" style="background:${k[1]}">${k[0]||'✓'}</span> ${(i>>1)+1}${x.col=='w'?'.':'…'} ${pc} ${sq(x.f)}→${sq(x.t)} <b>${k[2]}</b>${o.ev!=null?` <i>(${o.ev>=0?'+':''}${(o.ev/100).toFixed(1)})</i>`:''}${bad&&o.best?` — best: ${NM[x.pre[o.best[0]][1]]} ${sq(o.best[0])}→${sq(o.best[1])}`:''}</div>`});
-  box.innerHTML=t+'</div>'}
 window.showRev=function(H,out){rvState={H,out,fin:cp(b),cur:-1};rvView=0;renderList()};
 $('rvp').onclick=e=>{const r=rvState;if(!r)return;const t=e.target;
   const row=t.closest&&t.closest('[data-i]');
@@ -210,6 +200,33 @@ function drawPos(pos,hl,mark){const el=$('board');el.innerHTML='';
       }
     }
     el.appendChild(d)}}
+// Mate display, Brilliant rule fix, and review text.
+function fmtEv(sc){if(sc==null)return '';const a=Math.abs(sc);if(a>=9900)return (sc>0?'+':'-')+'M'+(10000-a);return (sc>=0?'+':'')+(sc/100).toFixed(1)}
+function analyzeSF(H,ev,i,prev){const x=H[i];if(x.ill)return{c:'illegal'};
+  const pre=x.pre,col=x.col,opp=col=='w'?'b':'w',ms=legal(pre,col);if(!ms.some(m=>m[0]==x.f&&m[1]==x.t))return{c:'illegal'};
+  const e=ev[i],n=ev[i+1],nx=i+1<H.length?H[i+1].col:opp,me=nx==opp?-n.sc:n.sc;
+  const isBest=e.best&&e.best.slice(0,4)==sq(x.f)+sq(x.t);
+  const loss=isBest?0:Math.max(0,WP(e.sc)-WP(me)),gap=e.sc2!=null?WP(e.sc)-WP(e.sc2):0;
+  let c;
+  if(loss<=.004)c='best';else if(loss<.02)c='excellent';else if(loss<.05)c='good';else if(loss<.1)c='inacc';else if(loss<.2)c='mistake';else c='blunder';
+  if(c=='best'&&gap>=.1&&ms.length>1&&e.sc<9900)c='great';
+  if(loss<.02&&e.sc<9900&&me<9900){
+    const p=pre[x.f][1],cap=pre[x.t]?VAL[pre[x.t][1]]:0,aft=app(pre,[x.f,x.t]);
+    const attacked=gen(aft,opp).some(m=>m[1]==x.t);
+    if(attacked&&VAL[p]-cap>=250&&WP(me)>.6)c='brilliant'}
+  if(i<8&&loss<.03&&c!='brilliant')c='book';
+  if(prev&&(prev.c=='mistake'||prev.c=='blunder')&&loss>=.1)c='miss';
+  return{c,loss,best:e.best&&e.best!='(none)'?[sqi(e.best.slice(0,2)),sqi(e.best.slice(2,4))]:null,ev:nx=='w'?n.sc:-n.sc}}
+function renderList(){const r=rvState,box=$('rvp');if(!r)return;const H=r.H,out=r.out;
+  const nm=[sfMode?eng:'You','ChatGPT'],S={w:{},b:{},wa:[],ba:[]};
+  out.forEach((o,i)=>{const c=H[i].col;S[c][o.c]=(S[c][o.c]||0)+1;if(o.loss!=null)S[c+'a'].push(103.17*Math.exp(-4.354*o.loss)-3.17)});
+  const acc=a=>a.length?Math.max(0,a.reduce((x,y)=>x+y,0)/a.length).toFixed(1)+'%':'–';
+  let t=`<b>Game review</b> <small>(${revName})</small><div style="margin:6px 0"><button id="rvPrev">◀ Prev</button> <button id="rvNext">Next ▶</button> <button id="rvBack">Back to game</button></div><table class="sm"><tr><th></th><th>${nm[0]}</th><th>${nm[1]}</th></tr><tr><td>Accuracy</td><td>${acc(S.wa)}</td><td>${acc(S.ba)}</td></tr>`;
+  for(const k in CL)t+=`<tr><td><span class="bd" style="background:${CL[k][1]}">${CL[k][0]||'✓'}</span> ${CL[k][2]}</td><td>${S.w[k]||0}</td><td>${S.b[k]||0}</td></tr>`;
+  t+='</table><div class="mv">';
+  out.forEach((o,i)=>{const x=H[i],k=CL[o.c],pc=x.pre[x.f]?NM[x.pre[x.f][1]]:'piece',bad=['inacc','mistake','miss','blunder'].includes(o.c),on=rvView&&i==r.cur;
+    t+=`<div data-i="${i}" style="cursor:pointer;padding:3px 4px;border-radius:4px;${on?'background:var(--sel);color:#222':''}"><span class="bd" style="background:${k[1]}">${k[0]||'✓'}</span> ${(i>>1)+1}${x.col=='w'?'.':'…'} ${pc} ${sq(x.f)}→${sq(x.t)} <b>${k[2]}</b>${o.ev!=null?` <i>(${fmtEv(o.ev)})</i>`:''}${bad&&o.best?` — best: ${NM[x.pre[o.best[0]][1]]} ${sq(o.best[0])}→${sq(o.best[1])}`:''}</div>`});
+  box.innerHTML=t+'</div>'}
 function showMove(i){const r=rvState;if(!r||i<0||i>=r.H.length)return;
   if(!rvView){rvSavedLast=last.slice();rvSavedStatus=$('status').textContent}
   rvView=1;r.cur=i;
@@ -217,7 +234,7 @@ function showMove(i){const r=rvState;if(!r||i<0||i>=r.H.length)return;
   drawPos(aft,[x.f,x.t],{sq:x.t,c:o.c});
   const k=CL[o.c],who=x.col=='w'?'White':'Black',pc=NM[x.pre[x.f][1]];
   let txt=`Move ${(i>>1)+1} ${who}: ${pc} ${sq(x.f)}→${sq(x.t)} — ${k[2]}`;
-  if(o.ev!=null)txt+=` (${o.ev>=0?'+':''}${(o.ev/100).toFixed(1)})`;
+  if(o.ev!=null)txt+=` (${fmtEv(o.ev)})`;
   if(['inacc','mistake','miss','blunder'].includes(o.c)&&o.best)txt+=`. Best: ${NM[x.pre[o.best[0]][1]]} ${sq(o.best[0])}→${sq(o.best[1])}`;
   stat(txt);renderList()}
 </script>
