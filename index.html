@@ -213,7 +213,7 @@ function analyzeSF(H,ev,i,prev){const x=H[i];if(x.ill)return{c:'illegal'};
   if(loss<.02&&e.sc<9900&&me<9900){
     const p=pre[x.f][1],cap=pre[x.t]?VAL[pre[x.t][1]]:0,aft=app(pre,[x.f,x.t]);
     const attacked=gen(aft,opp).some(m=>m[1]==x.t);
-    if(attacked&&VAL[p]-cap>=250&&WP(me)>.6)c='brilliant'}
+    if(attacked&&VAL[p]-cap>=200&&WP(me)>.6)c='brilliant'}
   if(i<8&&loss<.03&&c!='brilliant')c='book';
   if(prev&&(prev.c=='mistake'||prev.c=='blunder')&&loss>=.1)c='miss';
   return{c,loss,best:e.best&&e.best!='(none)'?[sqi(e.best.slice(0,2)),sqi(e.best.slice(2,4))]:null,ev:nx=='w'?n.sc:-n.sc}}
