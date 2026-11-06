@@ -21,6 +21,9 @@ h1{font-size:1.2rem;margin:4px 0}
 #status{margin:10px 0 4px;font-weight:600;text-align:center;min-height:1.4em}
 button{background:var(--fg);color:var(--bg);border:0;border-radius:6px;padding:8px 14px;font-size:.9rem;cursor:pointer;margin:6px 0}
 #rvp{width:calc(var(--s)*8);background:var(--card);border-radius:8px;padding:8px 12px;margin-top:8px;font-size:.85rem}#rvp:empty{display:none}
+#histbox{width:calc(var(--s)*8);background:var(--card);border-radius:8px;padding:8px 12px;margin-top:8px;font-size:.85rem}#histbox:empty{display:none}
+#acct{width:calc(var(--s)*8);display:flex;flex-direction:column;align-items:center;gap:4px;margin-top:8px}
+#acct input{width:48%;padding:6px;font-size:.9rem}
 .row2{display:flex;gap:6px;flex-wrap:wrap;justify-content:center}.row2 button{padding:7px 10px;font-size:.8rem}
 .bd{display:inline-block;min-width:28px;text-align:center;border-radius:10px;color:#fff;font-size:.72rem;padding:1px 5px;font-weight:700}
 .sm{width:100%;border-collapse:collapse}.sm td,.sm th{padding:2px 4px;text-align:left}.mv{max-height:260px;overflow-y:auto;margin-top:6px}.mv div{padding:2px 0}
@@ -32,9 +35,15 @@ button{background:var(--fg);color:var(--bg);border:0;border-radius:6px;padding:8
 <body>
 <h1>♟ Chess vs ChatGPT</h1>
 <div class="sub">You are White. ChatGPT opens normally, then falls apart like in GothamChess videos.</div>
+<div id="acct">
+  <div id="acctStatus" class="sub">Not signed in (games are not saved)</div>
+  <div><input id="em" placeholder="email"> <input id="pw" type="password" placeholder="password"></div>
+  <div><button id="su">Create account</button> <button id="si">Sign in</button> <button id="so" style="display:none">Sign out</button> <button id="hb" style="display:none">My history</button></div>
+</div>
 <div id="board"></div>
 <div id="status"></div>
 <div class="row2"><button id="nw">New game</button><button id="pp">Pass &amp; play</button><button id="m1">You vs ChatGPT</button><button id="m2">Stockfish vs ChatGPT</button><button id="rv">Game review</button></div><div class="row2" style="margin-top:6px"><label>Engine: <select id="eng"><option value="18">Stockfish 18</option><option value="19">Stockfish 19</option><option value="0">Built-in (weak)</option></select></label></div><div id="es" class="sub">Stockfish loads when you press “Stockfish vs ChatGPT” or “Game review”.</div><progress id="pg" max="100" value="0"></progress><div id="rvp"></div>
+<div id="histbox"></div>
 <div id="log"></div>
 <script src="game.js"></script>
 <script>
@@ -243,5 +252,100 @@ function showMove(i){const r=rvState;if(!r||i<0||i>=r.H.length)return;
   if(o.ev!=null)txt+=` (${fmtEv(o.ev)})`;
   if(['inacc','mistake','miss','blunder'].includes(o.c)&&o.best)txt+=`. Best: ${NM[x.pre[o.best[0]][1]]} ${sq(o.best[0])}→${sq(o.best[1])}`;
   stat(txt);renderList()}
+</script>
+<script>
+// Game history: finished games are saved to the signed-in account, and can be replayed.
+const PCS={wK:'K',wQ:'Q',wR:'R',wB:'B',wN:'N',wP:'P',bK:'k',bQ:'q',bR:'r',bB:'b',bN:'n',bP:'p'};
+function encodeBoard(pos){let s='';for(let i=0;i<64;i++)s+=pos[i]?PCS[pos[i]]:'.';return s}
+function decodeBoard(s){return Array.from(s,ch=>ch=='.'?null:(ch===ch.toUpperCase()?'w':'b')+ch.toUpperCase())}
+let savedEp=-1,rep=null,repStatus='';
+const _renderBase=window.render;
+window.render=function(){_renderBase.apply(this,arguments);
+  if(over&&hist.length&&savedEp!==epoch){savedEp=epoch;saveFinishedGame()}};
+function saveFinishedGame(){
+  const rec={created:Date.now(),result:$('status').textContent,
+    mode:sfMode?eng:(pp?'Pass & play':'vs ChatGPT'),
+    start:encodeBoard(hist[0].pre),
+    moves:hist.map(x=>(x.ill?'*':'')+sq(x.f)+sq(x.t)),
+    boards:hist.map((x,i)=>encodeBoard(i+1<hist.length?hist[i+1].pre:cp(b))),
+    plies:hist.length};
+  if(window.saveGameCloud)window.saveGameCloud(rec);
+}
+function drawRep(){
+  const r=rep.r,i=rep.i;
+  const pos=decodeBoard(i<0?r.start:r.boards[i]);
+  let hl=[];
+  if(i>=0){const m=r.moves[i].replace('*','');hl=[sqi(m.slice(0,2)),sqi(m.slice(2,4))]}
+  drawPos(pos,hl);
+  stat(i<0?`${r.result} · start position`:`${r.result} · move ${i+1}/${r.plies}`);
+}
+function renderRepControls(){
+  const c=document.getElementById('repctl');if(!c)return;
+  c.innerHTML='<button id="rs">Start</button> <button id="rp">◀ Prev</button> <button id="rn">Next ▶</button> <button id="rc">Close replay</button>';
+  document.getElementById('rs').onclick=()=>{if(rep){rep.i=-1;drawRep()}};
+  document.getElementById('rp').onclick=()=>{if(rep&&rep.i>-1){rep.i--;drawRep()}};
+  document.getElementById('rn').onclick=()=>{if(rep&&rep.i<rep.r.plies-1){rep.i++;drawRep()}};
+  document.getElementById('rc').onclick=closeRep;
+}
+function openGame(r){
+  if(!rep)repStatus=$('status').textContent;
+  rep={r,i:-1};
+  drawRep();renderRepControls();
+}
+function closeRep(){
+  rep=null;
+  const c=document.getElementById('repctl');if(c)c.innerHTML='';
+  render();stat(repStatus);
+}
+window.openGame=openGame;
+window.closeRep=closeRep;
+// Starting a new game or mode closes any open replay.
+document.addEventListener('click',e=>{
+  if(rep&&e.target.closest&&e.target.closest('#nw,#pp,#m1,#m2')){rep=null;const c=document.getElementById('repctl');if(c)c.innerHTML=''}
+},true);
+</script>
+<script type="module">
+import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import {getAuth,createUserWithEmailAndPassword,signInWithEmailAndPassword,signOut,onAuthStateChanged} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import {getFirestore,collection,addDoc,getDocs,query,orderBy} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+const app=initializeApp({apiKey:"AIzaSyBB1VVXGd2JmEZ9sCDiWj5u2Z6C8oq_fNI",authDomain:"chess-chatgpt.firebaseapp.com",projectId:"chess-chatgpt",storageBucket:"chess-chatgpt.firebasestorage.app",messagingSenderId:"859327563122",appId:"1:859327563122:web:78624d73fbf64d4a5749eb"});
+const auth=getAuth(app),db=getFirestore(app);
+let user=null;
+const el=id=>document.getElementById(id);
+const msg=t=>{el('acctStatus').textContent=t};
+window.acctMsg=msg;
+onAuthStateChanged(auth,u=>{
+  user=u;
+  msg(u?'Signed in: '+u.email+' (games are saved)':'Not signed in (games are not saved)');
+  el('so').style.display=u?'':'none';
+  el('hb').style.display=u?'':'none';
+  if(!u)el('histbox').innerHTML='';
+});
+el('su').onclick=()=>createUserWithEmailAndPassword(auth,el('em').value,el('pw').value).catch(e=>msg('Error: '+e.message));
+el('si').onclick=()=>signInWithEmailAndPassword(auth,el('em').value,el('pw').value).catch(e=>msg('Error: '+e.message));
+el('so').onclick=()=>signOut(auth);
+el('hb').onclick=loadHistory;
+window.saveGameCloud=async rec=>{
+  if(!user){msg('Sign in to save games (this game was not saved)');return false}
+  try{await addDoc(collection(db,'users',user.uid,'games'),rec);msg('Game saved to your history');return true}
+  catch(e){msg('Save failed: '+e.message);return false}
+};
+async function loadHistory(){
+  if(!user){msg('Sign in first');return}
+  try{
+    const snap=await getDocs(query(collection(db,'users',user.uid,'games'),orderBy('created','desc')));
+    el('histbox').innerHTML='<b>My games</b><div id="repctl"></div><div id="hlist"></div>';
+    const list=el('hlist');
+    if(snap.empty)list.textContent='No saved games yet.';
+    snap.forEach(d=>{
+      const r=d.data();
+      const row=document.createElement('div');
+      row.style.cssText='padding:5px 0;cursor:pointer;border-bottom:1px solid #8884';
+      row.textContent=new Date(r.created).toLocaleDateString()+' · '+r.mode+' · '+r.result;
+      row.onclick=()=>window.openGame(r);
+      list.appendChild(row);
+    });
+  }catch(e){msg('History failed: '+e.message)}
+}
 </script>
 </body></html>
