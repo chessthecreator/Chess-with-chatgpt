@@ -163,6 +163,7 @@ async function reviewFast(){
   }
   if(E!=epoch)return;
   const out=[];H.forEach((x,i)=>out.push(analyzeSF(H,ev,i,out[i-1])));showRev(H,out);
+  if(window.saveAnalysis&&window.currentDocEpoch===epoch)window.saveAnalysis(H,out);
 }
 $('rv').onclick=reviewFast;
 </script>
@@ -254,7 +255,7 @@ function showMove(i){const r=rvState;if(!r||i<0||i>=r.H.length)return;
   stat(txt);renderList()}
 </script>
 <script>
-// Game history: finished games are saved to the signed-in account, and can be replayed.
+// Game history: finished games are saved to the signed-in account, and can be replayed with their review labels.
 const PCS={wK:'K',wQ:'Q',wR:'R',wB:'B',wN:'N',wP:'P',bK:'k',bQ:'q',bR:'r',bB:'b',bN:'n',bP:'p'};
 function encodeBoard(pos){let s='';for(let i=0;i<64;i++)s+=pos[i]?PCS[pos[i]]:'.';return s}
 function decodeBoard(s){return Array.from(s,ch=>ch=='.'?null:(ch===ch.toUpperCase()?'w':'b')+ch.toUpperCase())}
@@ -269,15 +270,20 @@ function saveFinishedGame(){
     moves:hist.map(x=>(x.ill?'*':'')+sq(x.f)+sq(x.t)),
     boards:hist.map((x,i)=>encodeBoard(i+1<hist.length?hist[i+1].pre:cp(b))),
     plies:hist.length};
+  window.pendingEpoch=epoch;
   if(window.saveGameCloud)window.saveGameCloud(rec);
 }
 function drawRep(){
   const r=rep.r,i=rep.i;
   const pos=decodeBoard(i<0?r.start:r.boards[i]);
-  let hl=[];
-  if(i>=0){const m=r.moves[i].replace('*','');hl=[sqi(m.slice(0,2)),sqi(m.slice(2,4))]}
-  drawPos(pos,hl);
-  stat(i<0?`${r.result} · start position`:`${r.result} · move ${i+1}/${r.plies}`);
+  let hl=[],mark=null,lab='';
+  if(i>=0){
+    const m=r.moves[i].replace('*','');const f=sqi(m.slice(0,2)),t=sqi(m.slice(2,4));hl=[f,t];
+    if(r.analysis&&r.analysis[i]){const o=r.analysis[i];mark={sq:t,c:o.c};
+      if(CL[o.c])lab=` · ${CL[o.c][2]}`+(o.ev!=null?` (${fmtEv(o.ev)})`:'')}
+  }
+  drawPos(pos,hl,mark);
+  stat(i<0?`${r.result} · start position`:`${r.result} · move ${i+1}/${r.plies}${lab}`);
 }
 function renderRepControls(){
   const c=document.getElementById('repctl');if(!c)return;
@@ -307,13 +313,12 @@ document.addEventListener('click',e=>{
 <script type="module">
 import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {getAuth,createUserWithEmailAndPassword,signInWithEmailAndPassword,signOut,onAuthStateChanged} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import {getFirestore,collection,addDoc,getDocs,query,orderBy} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import {getFirestore,collection,addDoc,getDocs,query,orderBy,doc,updateDoc} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 const app=initializeApp({apiKey:"AIzaSyBB1VVXGd2JmEZ9sCDiWj5u2Z6C8oq_fNI",authDomain:"chess-chatgpt.firebaseapp.com",projectId:"chess-chatgpt",storageBucket:"chess-chatgpt.firebasestorage.app",messagingSenderId:"859327563122",appId:"1:859327563122:web:78624d73fbf64d4a5749eb"});
 const auth=getAuth(app),db=getFirestore(app);
 let user=null;
 const el=id=>document.getElementById(id);
 const msg=t=>{el('acctStatus').textContent=t};
-window.acctMsg=msg;
 onAuthStateChanged(auth,u=>{
   user=u;
   msg(u?'Signed in: '+u.email+' (games are saved)':'Not signed in (games are not saved)');
@@ -327,8 +332,21 @@ el('so').onclick=()=>signOut(auth);
 el('hb').onclick=loadHistory;
 window.saveGameCloud=async rec=>{
   if(!user){msg('Sign in to save games (this game was not saved)');return false}
-  try{await addDoc(collection(db,'users',user.uid,'games'),rec);msg('Game saved to your history');return true}
+  try{
+    const ref=await addDoc(collection(db,'users',user.uid,'games'),rec);
+    window.currentDocId=ref.id;window.currentDocEpoch=window.pendingEpoch;
+    msg('Game saved to your history (run Game review to save its labels)');
+    return true;
+  }
   catch(e){msg('Save failed: '+e.message);return false}
+};
+window.saveAnalysis=async(H,out)=>{
+  if(!user||!window.currentDocId){msg('Review not saved: sign in and finish the game in this session first');return}
+  const analysis=out.map(o=>({c:o.c,loss:o.loss==null?null:o.loss,ev:o.ev==null?null:o.ev}));
+  try{
+    await updateDoc(doc(db,'users',user.uid,'games',window.currentDocId),{analysis,reviewed:Date.now()});
+    msg('Review saved to your history');
+  }catch(e){msg('Review save failed: '+e.message)}
 };
 async function loadHistory(){
   if(!user){msg('Sign in first');return}
@@ -341,8 +359,8 @@ async function loadHistory(){
       const r=d.data();
       const row=document.createElement('div');
       row.style.cssText='padding:5px 0;cursor:pointer;border-bottom:1px solid #8884';
-      row.textContent=new Date(r.created).toLocaleDateString()+' · '+r.mode+' · '+r.result;
-      row.onclick=()=>window.openGame(r);
+      row.textContent=new Date(r.created).toLocaleDateString()+' · '+r.mode+' · '+r.result+(r.analysis?' · reviewed':'');
+      row.onclick=()=>{const rr=Object.assign({id:d.id},r);window.openGame(rr)};
       list.appendChild(row);
     });
   }catch(e){msg('History failed: '+e.message)}
