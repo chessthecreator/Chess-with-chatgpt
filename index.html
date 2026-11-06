@@ -127,8 +127,7 @@ $('m1').onclick=e=>{pp=0;m1Old(e)};
 $('m2').onclick=e=>{pp=0;m2Old(e)};
 </script>
 <script>
-// Faster review: quick pass for every move, then a deep check only on sacrifices and key moves.
-const KEY_LABELS=['brilliant','great','excellent','inacc','mistake','blunder','miss'];
+// Fast game review: one pass over every move, about 0.3 seconds of thinking each.
 async function reviewFast(){
   const H=hist.slice(),box=$('rvp'),E=epoch;
   if(H.length<2){box.textContent='Play a few moves first.';return}
@@ -136,38 +135,25 @@ async function reviewFast(){
   await ensureEngine();
   if(E!=epoch)return;
   if(!W)return reviewBI();
-  revName=`${eng}, quick pass + depth 16 on sacrifices`;
+  revName=`${eng}, fast review (0.3 s per move)`;
   const P=H.map(x=>x.pre).concat([cp(b)]);
   const sd=i=>i<H.length?H[i].col:(H[H.length-1].col=='w'?'b':'w');
-  const search=async(i,cmd,mpv)=>{
+  const search=async i=>{
     const s=sd(i);
     const ok=P[i].indexOf('wK')>=0&&P[i].indexOf('bK')>=0&&legal(P[i],s).length;
     if(!ok)return{sc:(P[i].indexOf(s+'K')<0||inChk(P[i],s))?-10000:0,sc2:null,best:null};
-    const r=await ask(fenOf(P[i],s),cmd,mpv);
-    return{sc:r.L[1]?r.L[1].sc:0,sc2:r.L[2]?r.L[2].sc:null,best:r.best}};
+    const r=await ask(fenOf(P[i],s),'go movetime 300',2);
+    let best=r.best;
+    if(best&&best!='(none)'){const f=sqi(best.slice(0,2));if(!P[i][f]||P[i][f][0]!=s)best=null}
+    return{sc:r.L[1]?r.L[1].sc:0,sc2:r.L[2]?r.L[2].sc:null,best}};
   const ev=[];
   for(let i=0;i<P.length;i++){
     if(E!=epoch)return;
-    box.textContent=`Quick pass: position ${i+1}/${P.length}`;
-    ev.push(await search(i,'go movetime 200',1));
-  }
-  const analyzeAll=()=>{const out=[];H.forEach((x,i)=>out.push(analyzeSF(H,ev,i,out[i-1])));return out};
-  const quick=analyzeAll();
-  const cand=[];
-  H.forEach((x,i)=>{
-    const pre=x.pre,p=pre[x.f]?pre[x.f][1]:'',cap=pre[x.t]?VAL[pre[x.t][1]]:0;
-    const aft=app(pre,[x.f,x.t]);
-    const sac=p&&VAL[p]-cap>=150&&gen(aft,x.col=='w'?'b':'w').some(m=>m[1]==x.t);
-    if(sac||KEY_LABELS.includes(quick[i].c))cand.push(i)});
-  for(let j=0;j<cand.length;j++){
-    if(E!=epoch)return;
-    const k=cand[j];
-    box.textContent=`Deep check ${j+1}/${cand.length} (depth 16)…`;
-    ev[k]=await search(k,'go depth 16',2);
-    if(k+1<P.length)ev[k+1]=await search(k+1,'go depth 16',2);
+    box.textContent=`Reviewing: position ${i+1}/${P.length}`;
+    ev.push(await search(i));
   }
   if(E!=epoch)return;
-  showRev(H,analyzeAll());
+  const out=[];H.forEach((x,i)=>out.push(analyzeSF(H,ev,i,out[i-1])));showRev(H,out);
 }
 $('rv').onclick=reviewFast;
 </script>
