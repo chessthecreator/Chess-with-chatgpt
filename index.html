@@ -353,6 +353,63 @@ async function reviewSaved(r){
 window.reviewSaved=reviewSaved;
 window.markReviewed=a=>{if(rep){rep.r.analysis=a;rep.r.rv=2;renderRepControls()}};
 </script>
+<script>
+// Evaluation bar on the side of the board. Game review only works after the game ends.
+(function(){
+  document.documentElement.style.setProperty('--s','min(10vw,52px)');
+  const old=document.getElementById('evbar');if(old)old.remove();
+  const board=$('board');
+  const wrap=document.createElement('div');
+  wrap.id='boardwrap';
+  wrap.style.cssText='display:flex;align-items:flex-start;justify-content:center;gap:6px';
+  board.parentNode.insertBefore(wrap,board);
+  const col=document.createElement('div');
+  col.style.cssText='display:flex;flex-direction:column;align-items:center;width:30px;flex:0 0 30px';
+  const t=document.createElement('div');
+  t.id='evlabel';
+  t.style.cssText='font-size:11px;font-weight:700;height:16px;line-height:16px;text-align:center;white-space:nowrap';
+  const bar=document.createElement('div');
+  bar.id='evbar';
+  bar.style.cssText='position:relative;width:14px;height:calc(var(--s)*8 + 6px);border-radius:4px;overflow:hidden;background:#333';
+  const w=document.createElement('div');
+  w.style.cssText='position:absolute;left:0;right:0;bottom:0;height:50%;background:#f5f5f5;transition:height .4s';
+  bar.appendChild(w);col.appendChild(t);col.appendChild(bar);
+  wrap.appendChild(col);wrap.appendChild(board);
+  window.evBarSet=(cp,label)=>{
+    w.style.height=(cp==null?50:100*WP(cp)).toFixed(1)+'%';
+    t.textContent=label||'';
+  };
+})();
+// Live game: material estimate while playing; the review score at the end of the game.
+const _evRender=window.render;
+window.render=function(){_evRender.apply(this,arguments);
+  if(rep||rvView)return;
+  if(!over){window.finalEval=null;const c=-ev(b);evBarSet(c,fmtEv(c));return}
+  if(window.finalEval!=null){evBarSet(window.finalEval,fmtEv(window.finalEval));return}
+  const c=-ev(b);evBarSet(c,fmtEv(c));
+};
+// Review and replay: show the engine's score for the position you are looking at.
+const _evDraw=window.drawPos;
+window.drawPos=function(pos,hl,mark){
+  _evDraw(pos,hl,mark);
+  if(rvView&&rvState&&rvState.cur>=0){const o=rvState.out[rvState.cur];evBarSet(o.ev,fmtEv(o.ev));return}
+  if(rep){
+    if(rep.i>=0&&rep.r.analysis&&rep.r.analysis[rep.i]){const o=rep.r.analysis[rep.i];evBarSet(o.ev,fmtEv(o.ev));return}
+    evBarSet(null,'no review');
+  }
+};
+// After a finished game is reviewed, keep its final score on the bar.
+const _evShow=window.showRev;
+window.showRev=function(H,out){
+  _evShow(H,out);
+  if(over&&out.length){const o=out[out.length-1];window.finalEval=o.ev;evBarSet(o.ev,fmtEv(o.ev))}
+};
+// Game review is only available after the game ends.
+$('rv').onclick=()=>{
+  if(!over){$('rvp').textContent='Game review is available after the game ends.';return}
+  reviewFast();
+};
+</script>
 <script type="module">
 import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {getAuth,createUserWithEmailAndPassword,signInWithEmailAndPassword,signOut,onAuthStateChanged} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
