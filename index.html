@@ -410,6 +410,34 @@ $('rv').onclick=()=>{
   reviewFast();
 };
 </script>
+<script>
+// End of game: show the real result on the bar. Checkmate and stalemate are exact; otherwise Stockfish
+// scores the final position if it is already loaded.
+const _endRender=window.render;
+window.render=function(){_endRender.apply(this,arguments);
+  if(!over||rep||rvView||window.finalEval!=null)return;
+  const stm=!legal(b,'w').length?'w':(!legal(b,'b').length?'b':null);
+  if(stm){
+    const mated=inChk(b,stm);
+    evBarSet(mated?(stm=='w'?-10000:10000):0,mated?'Mate':'Draw');
+    return;
+  }
+  if(W&&!window.endEvalBusy){
+    window.endEvalBusy=true;
+    const side=hist.length%2==0?'w':'b';
+    ask(fenOf(b,side),'go movetime 400',1).then(r=>{
+      window.endEvalBusy=false;
+      const sc=r.L[1]?r.L[1].sc:null;
+      if(sc!=null&&over&&window.finalEval==null){
+        const white=side=='w'?sc:-sc;
+        evBarSet(white,fmtEv(white));
+      }
+    }).catch(()=>{window.endEvalBusy=false});
+    return;
+  }
+  const c=-ev(b);evBarSet(c,fmtEv(c));
+};
+</script>
 <script type="module">
 import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {getAuth,createUserWithEmailAndPassword,signInWithEmailAndPassword,signOut,onAuthStateChanged} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
