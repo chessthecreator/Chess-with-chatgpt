@@ -20,6 +20,7 @@ h1{font-size:1.2rem;margin:4px 0}
 .last{box-shadow:inset 0 0 0 3px var(--bad)}
 #status{margin:10px 0 4px;font-weight:600;text-align:center;min-height:1.4em}
 button{background:var(--fg);color:var(--bg);border:0;border-radius:6px;padding:8px 14px;font-size:.9rem;cursor:pointer;margin:6px 0}
+button:disabled{opacity:.5}
 #rvp{width:calc(var(--s)*8);background:var(--card);border-radius:8px;padding:8px 12px;margin-top:8px;font-size:.85rem}#rvp:empty{display:none}
 #histbox{width:calc(var(--s)*8);background:var(--card);border-radius:8px;padding:8px 12px;margin-top:8px;font-size:.85rem}#histbox:empty{display:none}
 #acct{width:calc(var(--s)*8);display:flex;flex-direction:column;align-items:center;gap:4px;margin-top:8px}
@@ -286,11 +287,16 @@ function drawRep(){
 }
 function renderRepControls(){
   const c=document.getElementById('repctl');if(!c)return;
-  c.innerHTML='<button id="rs">Start</button> <button id="rp">◀ Prev</button> <button id="rn">Next ▶</button> <button id="rc">Close replay</button>';
+  let h='<button id="rs">Start</button> <button id="rp">◀ Prev</button> <button id="rn">Next ▶</button> <button id="rc">Close replay</button>';
+  if(rep&&!rep.r.analysis)h+=' <button id="rr">Review this game</button>';
+  c.innerHTML=h;
   document.getElementById('rs').onclick=()=>{if(rep){rep.i=-1;drawRep()}};
   document.getElementById('rp').onclick=()=>{if(rep&&rep.i>-1){rep.i--;drawRep()}};
   document.getElementById('rn').onclick=()=>{if(rep&&rep.i<rep.r.plies-1){rep.i++;drawRep()}};
   document.getElementById('rc').onclick=closeRep;
+  const rr=document.getElementById('rr');
+  if(rr)rr.onclick=()=>{rr.disabled=true;rr.textContent='Reviewing…';
+    reviewSaved(rep.r).finally(()=>{if(rr.isConnected){rr.disabled=false;rr.textContent='Review this game'}})};
 }
 function openGame(r){
   if(!rep)repStatus=$('status').textContent;
@@ -308,6 +314,41 @@ window.closeRep=closeRep;
 document.addEventListener('click',e=>{
   if(rep&&e.target.closest&&e.target.closest('#nw,#pp,#m1,#m2')){rep=null;const c=document.getElementById('repctl');if(c)c.innerHTML=''}
 },true);
+// Review a saved game from history: rebuild the moves from the saved record, then run the same review.
+function guessCR(pos){let c='KQkq';
+  if(pos[60]!=='wK'){c=c.replace(/[KQ]/g,'')}
+  if(pos[63]!=='wR')c=c.replace('K','');
+  if(pos[56]!=='wR')c=c.replace('Q','');
+  if(pos[4]!=='bK'){c=c.replace(/[kq]/g,'')}
+  if(pos[7]!=='bR')c=c.replace('k','');
+  if(pos[0]!=='bR')c=c.replace('q','');
+  return c||'-'}
+function rebuildHist(r){
+  const H=[];
+  for(let i=0;i<r.moves.length;i++){
+    const pre=decodeBoard(i==0?r.start:r.boards[i-1]);
+    pre.cr=guessCR(pre);pre.ep=-1;
+    if(i>0){const pm=r.moves[i-1].replace('*',''),pf=sqi(pm.slice(0,2)),pt=sqi(pm.slice(2,4));
+      const pp0=H[i-1].pre;
+      if(pp0[pf]&&pp0[pf][1]==='P'&&Math.abs((pt>>3)-(pf>>3))===2)pre.ep=(pf+pt)/2}
+    const mv=r.moves[i],ill=mv[0]==='*',m=ill?mv.slice(1):mv;
+    H.push({pre,col:i%2==0?'w':'b',f:sqi(m.slice(0,2)),t:sqi(m.slice(2,4)),ill});
+  }
+  return H;
+}
+async function reviewSaved(r){
+  if(!r||!r.moves||r.moves.length<2){alert('Not enough moves to review');return}
+  const sh=hist,sb=b;
+  window.currentDocId=r.id;
+  window.currentMovesKey=r.moves.join(',');
+  try{
+    hist=rebuildHist(r);
+    b=decodeBoard(r.boards[r.plies-1]);b.cr=guessCR(b);b.ep=-1;
+    await reviewFast();
+  }finally{hist=sh;b=sb}
+}
+window.reviewSaved=reviewSaved;
+window.markReviewed=a=>{if(rep){rep.r.analysis=a;renderRepControls()}};
 </script>
 <script type="module">
 import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
@@ -356,6 +397,7 @@ window.saveAnalysis=async(out,key)=>{
   try{
     await updateDoc(doc(db,'users',user.uid,'games',window.currentDocId),{analysis,reviewed:Date.now()});
     note('Review saved to your history ✓',true);
+    if(window.markReviewed)window.markReviewed(analysis);
   }catch(e){note('Review save failed: '+e.message,false)}
 };
 async function loadHistory(){
