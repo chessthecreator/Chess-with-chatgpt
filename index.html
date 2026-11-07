@@ -290,7 +290,8 @@ function drawRep(){
 function renderRepControls(){
   const c=document.getElementById('repctl');if(!c)return;
   let h='<button id="rs">Start</button> <button id="rp">◀ Prev</button> <button id="rn">Next ▶</button> <button id="rc">Close replay</button>';
-  if(rep&&!rep.r.analysis)h+=' <button id="rr">Review this game</button>';
+  const needs=rep&&(!rep.r.analysis||rep.r.rv!==2);
+  if(needs)h+=` <button id="rr">${rep.r.analysis?'Re-review (new rules)':'Review this game'}</button>`;
   c.innerHTML=h;
   document.getElementById('rs').onclick=()=>{if(rep){rep.i=-1;drawRep()}};
   document.getElementById('rp').onclick=()=>{if(rep&&rep.i>-1){rep.i--;drawRep()}};
@@ -298,7 +299,7 @@ function renderRepControls(){
   document.getElementById('rc').onclick=closeRep;
   const rr=document.getElementById('rr');
   if(rr)rr.onclick=()=>{rr.disabled=true;rr.textContent='Reviewing…';
-    reviewSaved(rep.r).finally(()=>{if(rr.isConnected){rr.disabled=false;rr.textContent='Review this game'}})};
+    reviewSaved(rep.r).finally(()=>{if(rr.isConnected){rr.disabled=false;rr.textContent=rep&&rep.r.analysis?'Re-review (new rules)':'Review this game'}})};
 }
 function openGame(r){
   if(!rep)repStatus=$('status').textContent;
@@ -350,7 +351,7 @@ async function reviewSaved(r){
   }finally{hist=sh;b=sb}
 }
 window.reviewSaved=reviewSaved;
-window.markReviewed=a=>{if(rep){rep.r.analysis=a;renderRepControls()}};
+window.markReviewed=a=>{if(rep){rep.r.analysis=a;rep.r.rv=2;renderRepControls()}};
 </script>
 <script type="module">
 import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
@@ -397,7 +398,7 @@ window.saveAnalysis=async(out,key)=>{
   if(key!==window.currentMovesKey){note('Review not saved: this review is for a different game than the one saved',false);return}
   const analysis=out.map(o=>({c:o.c,loss:o.loss==null?null:o.loss,ev:o.ev==null?null:o.ev}));
   try{
-    await updateDoc(doc(db,'users',user.uid,'games',window.currentDocId),{analysis,reviewed:Date.now()});
+    await updateDoc(doc(db,'users',user.uid,'games',window.currentDocId),{analysis,reviewed:Date.now(),rv:2});
     note('Review saved to your history ✓',true);
     if(window.markReviewed)window.markReviewed(analysis);
   }catch(e){note('Review save failed: '+e.message,false)}
@@ -413,7 +414,8 @@ async function loadHistory(){
       const r=d.data();
       const row=document.createElement('div');
       row.style.cssText='padding:5px 0;cursor:pointer;border-bottom:1px solid #8884';
-      row.textContent=new Date(r.created).toLocaleDateString()+' · '+r.mode+' · '+r.result+(r.analysis?' · reviewed':'');
+      const tag=!r.analysis?'':(r.rv===2?' · reviewed':' · old review (re-review for new rules)');
+      row.textContent=new Date(r.created).toLocaleDateString()+' · '+r.mode+' · '+r.result+tag;
       row.onclick=()=>{const rr=Object.assign({id:d.id},r);window.openGame(rr)};
       list.appendChild(row);
     });
