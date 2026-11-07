@@ -354,17 +354,17 @@ window.reviewSaved=reviewSaved;
 window.markReviewed=a=>{if(rep){rep.r.analysis=a;rep.r.rv=2;renderRepControls()}};
 </script>
 <script>
-// Evaluation bar on the side of the board. Game review only works after the game ends.
+// Evaluation bar on the side of the board. It is hidden during play and shown when the game ends,
+// during a review, or when a saved game is open. Game review only works after the game ends.
 (function(){
   document.documentElement.style.setProperty('--s','min(10vw,52px)');
-  const old=document.getElementById('evbar');if(old)old.remove();
   const board=$('board');
   const wrap=document.createElement('div');
   wrap.id='boardwrap';
   wrap.style.cssText='display:flex;align-items:flex-start;justify-content:center;gap:6px';
   board.parentNode.insertBefore(wrap,board);
   const col=document.createElement('div');
-  col.style.cssText='display:flex;flex-direction:column;align-items:center;width:30px;flex:0 0 30px';
+  col.style.cssText='display:none;flex-direction:column;align-items:center;width:30px;flex:0 0 30px';
   const t=document.createElement('div');
   t.id='evlabel';
   t.style.cssText='font-size:11px;font-weight:700;height:16px;line-height:16px;text-align:center;white-space:nowrap';
@@ -379,12 +379,14 @@ window.markReviewed=a=>{if(rep){rep.r.analysis=a;rep.r.rv=2;renderRepControls()}
     w.style.height=(cp==null?50:100*WP(cp)).toFixed(1)+'%';
     t.textContent=label||'';
   };
+  window.evBarShow=show=>{col.style.display=show?'flex':'none'};
 })();
-// Live game: material estimate while playing; the review score at the end of the game.
+// Live game: bar hidden while playing; the review score or the result appears at the end of the game.
 const _evRender=window.render;
 window.render=function(){_evRender.apply(this,arguments);
-  if(rep||rvView)return;
-  if(!over){window.finalEval=null;const c=-ev(b);evBarSet(c,fmtEv(c));return}
+  if(rep||rvView){evBarShow(true);return}
+  if(!over){window.finalEval=null;evBarShow(false);return}
+  evBarShow(true);
   if(window.finalEval!=null){evBarSet(window.finalEval,fmtEv(window.finalEval));return}
   const c=-ev(b);evBarSet(c,fmtEv(c));
 };
@@ -392,6 +394,7 @@ window.render=function(){_evRender.apply(this,arguments);
 const _evDraw=window.drawPos;
 window.drawPos=function(pos,hl,mark){
   _evDraw(pos,hl,mark);
+  evBarShow(true);
   if(rvView&&rvState&&rvState.cur>=0){const o=rvState.out[rvState.cur];evBarSet(o.ev,fmtEv(o.ev));return}
   if(rep){
     if(rep.i>=0&&rep.r.analysis&&rep.r.analysis[rep.i]){const o=rep.r.analysis[rep.i];evBarSet(o.ev,fmtEv(o.ev));return}
@@ -402,7 +405,7 @@ window.drawPos=function(pos,hl,mark){
 const _evShow=window.showRev;
 window.showRev=function(H,out){
   _evShow(H,out);
-  if(over&&out.length){const o=out[out.length-1];window.finalEval=o.ev;evBarSet(o.ev,fmtEv(o.ev))}
+  if(over&&out.length){const o=out[out.length-1];window.finalEval=o.ev;evBarShow(true);evBarSet(o.ev,fmtEv(o.ev))}
 };
 // Game review is only available after the game ends.
 $('rv').onclick=()=>{
