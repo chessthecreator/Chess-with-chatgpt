@@ -163,7 +163,7 @@ async function reviewFast(){
   }
   if(E!=epoch)return;
   const out=[];H.forEach((x,i)=>out.push(analyzeSF(H,ev,i,out[i-1])));showRev(H,out);
-  if(window.saveAnalysis&&window.currentDocEpoch===epoch)window.saveAnalysis(H,out);
+  if(window.saveAnalysis)window.saveAnalysis(out,H.map(x=>(x.ill?'*':'')+sq(x.f)+sq(x.t)).join(','));
 }
 $('rv').onclick=reviewFast;
 </script>
@@ -270,7 +270,6 @@ function saveFinishedGame(){
     moves:hist.map(x=>(x.ill?'*':'')+sq(x.f)+sq(x.t)),
     boards:hist.map((x,i)=>encodeBoard(i+1<hist.length?hist[i+1].pre:cp(b))),
     plies:hist.length};
-  window.pendingEpoch=epoch;
   if(window.saveGameCloud)window.saveGameCloud(rec);
 }
 function drawRep(){
@@ -319,6 +318,14 @@ const auth=getAuth(app),db=getFirestore(app);
 let user=null;
 const el=id=>document.getElementById(id);
 const msg=t=>{el('acctStatus').textContent=t};
+// Shows a result right above the review, so it's easy to see.
+function note(t,ok){
+  msg(t);
+  const d=document.createElement('div');
+  d.style.cssText='font-weight:700;margin:4px 0;color:'+(ok?'#2e7d32':'#c0392b');
+  d.textContent=t;
+  const box=document.getElementById('rvp');if(box)box.prepend(d);
+}
 onAuthStateChanged(auth,u=>{
   user=u;
   msg(u?'Signed in: '+u.email+' (games are saved)':'Not signed in (games are not saved)');
@@ -334,19 +341,22 @@ window.saveGameCloud=async rec=>{
   if(!user){msg('Sign in to save games (this game was not saved)');return false}
   try{
     const ref=await addDoc(collection(db,'users',user.uid,'games'),rec);
-    window.currentDocId=ref.id;window.currentDocEpoch=window.pendingEpoch;
-    msg('Game saved to your history (run Game review to save its labels)');
+    window.currentDocId=ref.id;
+    window.currentMovesKey=rec.moves.join(',');
+    msg('Game saved to your history. Tap Game review to save its labels.');
     return true;
   }
   catch(e){msg('Save failed: '+e.message);return false}
 };
-window.saveAnalysis=async(H,out)=>{
-  if(!user||!window.currentDocId){msg('Review not saved: sign in and finish the game in this session first');return}
+window.saveAnalysis=async(out,key)=>{
+  if(!user){note('Review not saved: sign in first',false);return}
+  if(!window.currentDocId){note('Review not saved: this game was not saved (sign in before you play)',false);return}
+  if(key!==window.currentMovesKey){note('Review not saved: this review is for a different game than the one saved',false);return}
   const analysis=out.map(o=>({c:o.c,loss:o.loss==null?null:o.loss,ev:o.ev==null?null:o.ev}));
   try{
     await updateDoc(doc(db,'users',user.uid,'games',window.currentDocId),{analysis,reviewed:Date.now()});
-    msg('Review saved to your history');
-  }catch(e){msg('Review save failed: '+e.message)}
+    note('Review saved to your history ✓',true);
+  }catch(e){note('Review save failed: '+e.message,false)}
 };
 async function loadHistory(){
   if(!user){msg('Sign in first');return}
