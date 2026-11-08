@@ -168,7 +168,7 @@ async function reviewFast(){
   }
   if(E!=epoch)return;
   const out=[];H.forEach((x,i)=>out.push(analyzeSF(H,ev,i,out[i-1])));showRev(H,out);
-  if(window.saveAnalysis)window.saveAnalysis(out,H.map(x=>(x.ill?'*':'')+sq(x.f)+sq(x.t)).join(','));
+  if(window.saveAnalysis)window.saveAnalysis(out,H.map(x=>(x.ill?'*':'')+sq(x.f)+sq(x.t)+(x.promo||'')).join(','));
 }
 $('rv').onclick=reviewFast;
 </script>
@@ -282,7 +282,7 @@ function saveFinishedGame(){
   const rec={created:Date.now(),result:$('status').textContent,
     mode:sfMode?eng:(pp?'Pass & play':'vs ChatGPT'),
     start:encodeBoard(hist[0].pre),
-    moves:hist.map(x=>(x.ill?'*':'')+sq(x.f)+sq(x.t)),
+    moves:hist.map(x=>(x.ill?'*':'')+sq(x.f)+sq(x.t)+(x.promo||'')),
     boards:hist.map((x,i)=>encodeBoard(i+1<hist.length?hist[i+1].pre:cp(b))),
     plies:hist.length,
     score:gameScore()};
@@ -348,7 +348,7 @@ function rebuildHist(r){
       const pp0=H[i-1].pre;
       if(pp0[pf]&&pp0[pf][1]==='P'&&Math.abs((pt>>3)-(pf>>3))===2)pre.ep=(pf+pt)/2}
     const mv=r.moves[i],ill=mv[0]==='*',m=ill?mv.slice(1):mv;
-    H.push({pre,col:i%2==0?'w':'b',f:sqi(m.slice(0,2)),t:sqi(m.slice(2,4)),ill});
+    H.push({pre,col:i%2==0?'w':'b',f:sqi(m.slice(0,2)),t:sqi(m.slice(2,4)),ill,promo:m[4]||undefined});
   }
   return H;
 }
@@ -358,6 +358,7 @@ async function reviewSaved(r){
   window.currentDocId=r.id;
   window.currentMovesKey=r.moves.join(',');
   window.currentMode=r.mode;
+  window.currentMyColor=r.myColor||'w';
   try{
     hist=rebuildHist(r);
     b=decodeBoard(r.boards[r.plies-1]);b.cr=guessCR(b);b.ep=-1;
@@ -454,6 +455,70 @@ window.render=function(){_endRender.apply(this,arguments);
     return;
   }
   const c=-ev(b);evBarSet(c,fmtEv(c));
+};
+</script>
+<script>
+// Promotion: when a pawn reaches the last rank, you choose a Queen, Rook, Bishop or Knight.
+window.promoChoice=null;
+const _promoApp=window.app;
+window.app=function(pos,m){
+  const r=_promoApp(pos,m);
+  const p=pos[m[0]];
+  if(p&&p[1]=='P'&&(m[1]<8||m[1]>=56)&&window.promoChoice){
+    const ch=window.promoChoice;
+    r[m[1]]=p[0]+ch.toUpperCase();
+    const h=[...hist].reverse().find(x=>x.f===m[0]&&x.t===m[1]&&!x.promo);
+    if(h)h.promo=ch;
+    window.promoChoice=null;
+  }
+  return r;
+};
+let promoPending=null,promoBox=null;
+function hidePromo(){if(promoBox)promoBox.style.display='none'}
+function showPromo(side){
+  if(!promoBox){
+    promoBox=document.createElement('div');
+    promoBox.id='promoBox';
+    promoBox.style.cssText='display:none;flex-wrap:wrap;gap:8px;justify-content:center;align-items:center;margin:8px 0;padding:8px;border-radius:8px;background:var(--card);width:calc(var(--s)*8)';
+    $('status').after(promoBox);
+  }
+  promoBox.innerHTML='';
+  const lab=document.createElement('div');
+  lab.style.cssText='font-weight:600;width:100%;text-align:center';
+  lab.textContent='Promote to:';
+  promoBox.appendChild(lab);
+  [['q','Queen'],['r','Rook'],['b','Bishop'],['n','Knight']].forEach(([ch,name])=>{
+    const bt=document.createElement('button');
+    bt.title=name;
+    bt.style.cssText='width:60px;height:60px;padding:4px;margin:0;background:var(--card);border:2px solid #8888;border-radius:8px';
+    bt.innerHTML=svg(side+ch.toUpperCase());
+    bt.onclick=()=>choosePromo(ch);
+    promoBox.appendChild(bt);
+  });
+  const cn=document.createElement('button');
+  cn.textContent='Cancel';cn.style.margin='0';cn.onclick=cancelPromo;
+  promoBox.appendChild(cn);
+  promoBox.style.display='flex';
+}
+function choosePromo(ch){
+  const p=promoPending;promoPending=null;hidePromo();
+  if(!p)return;
+  window.promoChoice=ch;
+  try{window.click(p.t)}finally{window.promoChoice=null}
+}
+function cancelPromo(){promoPending=null;hidePromo();sel=null;render()}
+const _promoClick=window.click;
+window.click=function(i){
+  if(promoPending)return;
+  const side=pp?ppT:'w';
+  if(!over&&sel!=null&&b[sel]&&b[sel][1]=='P'&&b[sel][0]==side&&(side=='w'?i>=56:i<8)&&legal(b,side).some(m=>m[0]==sel&&m[1]==i)){
+    if(!pp&&busy)return _promoClick(i);
+    promoPending={f:sel,t:i};
+    showPromo(side);
+    stat('Choose a piece to promote to');
+    return;
+  }
+  return _promoClick(i);
 };
 </script>
 <script type="module">
@@ -577,25 +642,28 @@ function onRemote(d){
   if(over)ob('Game over · vs '+oppName+' ('+oppElo+')');
   else ob(`You are ${myCol=='w'?'White':'Black'} vs ${oppName} (${oppElo}) · ${ppT===myCol?'Your move':'Waiting for '+oppName}`);
 }
-// Plays the opponent's moves on this board.
+// Plays the opponent's moves on this board. A fifth character in a move string is the promotion piece.
 function applyRemote(moves){
   let changed=false;
   while(!over&&hist.length<moves.length){
     const m=moves[hist.length];
-    const f=sqi(m.slice(0,2)),t=sqi(m.slice(2,4));
+    const f=sqi(m.slice(0,2)),t=sqi(m.slice(2,4)),pr=m[4]||undefined;
     const mv=legal(b,ppT).find(x=>x[0]==f&&x[1]==t);
     if(!mv)break;
-    say(`${ppT=='w'?'White':'Black'}: ${NM[b[f][1]]} ${sq(f)}→${sq(t)}`);
-    hist.push({pre:cp(b),col:ppT,f,t});
-    b=app(b,mv);last=[t];ppT=ppT=='w'?'b':'w';changed=true;
+    say(`${ppT=='w'?'White':'Black'}: ${NM[b[f][1]]} ${sq(f)}→${sq(t)}${pr?' promotes to '+NM[pr.toUpperCase()]:''}`);
+    hist.push({pre:cp(b),col:ppT,f,t,promo:pr});
+    window.promoChoice=pr||null;
+    b=app(b,mv);
+    window.promoChoice=null;
+    last=[t];ppT=ppT=='w'?'b':'w';changed=true;
     if(!legal(b,ppT).length){over=true;stat(inChk(b,ppT)?`Checkmate! ${ppT=='w'?'Black':'White'} wins.`:'Stalemate. Draw.');break}
     stat((inChk(b,ppT)?'Check! ':'')+(ppT=='w'?'White':'Black')+' to move');
   }
   if(changed)render();
 }
-// Sends my move (and the result, if the game ended) to the online game.
+// Sends my move (with its promotion piece, if any) and the result, if the game ended.
 function afterLocalMove(){
-  const moves=hist.map(x=>sq(x.f)+sq(x.t));
+  const moves=hist.map(x=>sq(x.f)+sq(x.t)+(x.promo||''));
   const upd={moves};
   if(over){if(!window.onlineResult)window.onlineResult=resultNow();upd.status='finished';upd.result=window.onlineResult}
   updateDoc(doc(db,'online',gid),upd).catch(e=>ob('Move not sent: '+e.message));
@@ -638,6 +706,7 @@ window.saveGameCloud=async rec=>{
   if(window.onlineActive){
     if(!window.onlineResult)window.onlineResult=resultNow();
     rec.mode='online';
+    rec.myColor=window.onlineMy;
     const res=window.onlineResult;
     const my=res==='d'?.5:(res===window.onlineMy?1:0);
     rec.score=my;
@@ -651,12 +720,14 @@ window.saveGameCloud=async rec=>{
   }else if(rec.mode==='vs ChatGPT'){
     // Games against ChatGPT are saved to history but do not change the rating.
     delete rec.score;
+    rec.myColor='w';
   }
   try{
     const ref=await addDoc(collection(db,'users',user.uid,'games'),rec);
     window.currentDocId=ref.id;
     window.currentMovesKey=rec.moves.join(',');
     window.currentMode=rec.mode;
+    window.currentMyColor=rec.myColor||'w';
     if(next){
       await setDoc(rref,next);
       profile=next;showRating();
@@ -673,10 +744,10 @@ window.saveAnalysis=async(out,key)=>{
   if(!window.currentDocId){note('Review not saved: this game was not saved (sign in before you play)',false);return}
   if(key!==window.currentMovesKey){note('Review not saved: this review is for a different game than the one saved',false);return}
   const analysis=out.map(o=>({c:o.c,loss:o.loss==null?null:o.loss,ev:o.ev==null?null:o.ev}));
-  // Accuracy is tracked for your moves in online games only.
+  // Accuracy is tracked for my moves in online games only.
   let myAcc=null;const H=window.lastReviewH;
   if(H&&window.currentMode==='online'){
-    const vals=[];out.forEach((o,i)=>{if(H[i]&&H[i].col===window.onlineMyForReview&&o.loss!=null)vals.push(103.17*Math.exp(-4.354*o.loss)-3.17)});
+    const vals=[];out.forEach((o,i)=>{if(H[i]&&H[i].col===window.currentMyColor&&o.loss!=null)vals.push(103.17*Math.exp(-4.354*o.loss)-3.17)});
     if(vals.length)myAcc=Math.max(0,vals.reduce((a,c)=>a+c,0)/vals.length);
   }
   try{
