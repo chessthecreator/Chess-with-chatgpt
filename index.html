@@ -625,4 +625,110 @@ window.render=function(){
   return _drawRender.apply(this,arguments);
 };
 </script>
+<script>
+// Backgrounds: choose a built-in background or upload your own. Your choice is saved on this device.
+(function(){
+  const PRESETS=[
+    {id:'default',name:'Default',css:'',dark:false},
+    {id:'charcoal',name:'Charcoal',css:'#2b2b2b',dark:true},
+    {id:'felt',name:'Green felt',css:'radial-gradient(circle at 30% 20%,#3f7a48,#24502b)',dark:true},
+    {id:'steel',name:'Steel',css:'linear-gradient(#5a6470,#2c323a)',dark:true},
+    {id:'silver',name:'Silver',css:'linear-gradient(#e4e6ea,#c7cbd2)',dark:false},
+    {id:'wood',name:'Wood',css:'repeating-linear-gradient(90deg,#5b3a1e 0 18px,#6e4726 18px 26px,#4f321a 26px 40px)',dark:true},
+    {id:'maple',name:'Maple',css:'linear-gradient(#e7c08a,#c99a58)',dark:false},
+    {id:'navy',name:'Navy',css:'linear-gradient(#1f3a5f,#122640)',dark:true},
+    {id:'ocean',name:'Ocean',css:'linear-gradient(#0f4c5c,#1b998b)',dark:true},
+    {id:'sky',name:'Sky',css:'linear-gradient(#7ec8ff,#dff3ff)',dark:false},
+    {id:'night',name:'Night',css:'radial-gradient(circle at 20% 30%,#ffffff44 1px,transparent 2px) 0 0/40px 40px,linear-gradient(#0b1d3a,#1c2e5a)',dark:true},
+    {id:'blush',name:'Blush',css:'linear-gradient(#ff9a9e,#fad0c4)',dark:false},
+    {id:'leather',name:'Red leather',css:'linear-gradient(#7a1f1f,#4a1212)',dark:true},
+    {id:'paper',name:'Paper',css:'#f3efe3',dark:false}
+  ];
+  function applyBg(s){
+    const de=document.documentElement,bd=document.body;
+    if(!s||(s.type==='preset'&&s.id==='default')){
+      bd.style.background='';
+      ['--fg','--mut','--card','--bg'].forEach(v=>de.style.removeProperty(v));
+      return;
+    }
+    let dark;
+    if(s.type==='custom'){
+      bd.style.background=`url("${s.data}") center/cover fixed no-repeat`;
+      dark=!!s.dark;
+    }else{
+      const p=PRESETS.find(x=>x.id===s.id)||PRESETS[0];
+      bd.style.background=p.css;
+      dark=p.dark;
+    }
+    de.style.setProperty('--bg',dark?'#1d1c1a':'#f4f1ea');
+    de.style.setProperty('--fg',dark?'#f2f2f2':'#222');
+    de.style.setProperty('--mut',dark?'#cfcfcf':'#555');
+    de.style.setProperty('--card',dark?'rgba(20,20,20,.72)':'rgba(255,255,255,.82)');
+  }
+  function saveBg(s){try{localStorage.setItem('chessBg',JSON.stringify(s))}catch(e){alert('Could not save this background: '+e.message)}}
+  function currentBg(){try{return JSON.parse(localStorage.getItem('chessBg')||'null')}catch(e){return null}}
+  // Panel with the thumbnails
+  const panel=document.createElement('div');
+  panel.id='bgpanel';
+  panel.style.cssText='display:none;width:calc(var(--s)*8);background:var(--card);border-radius:8px;padding:10px;margin-top:8px';
+  const grid=document.createElement('div');
+  grid.style.cssText='display:flex;flex-wrap:wrap;gap:8px;justify-content:center';
+  const up=document.createElement('input');
+  up.type='file';up.accept='image/*';up.style.cssText='margin-top:8px;font-size:.8rem;max-width:100%';
+  const tip=document.createElement('div');
+  tip.style.cssText='font-size:.75rem;color:var(--mut);margin-top:4px;text-align:center';
+  tip.textContent='Your own picture is saved on this device only.';
+  panel.appendChild(grid);panel.appendChild(up);panel.appendChild(tip);
+  $('histbox').parentNode.insertBefore(panel,$('histbox'));
+  function thumb(label,style,selected,onpick){
+    const d=document.createElement('div');
+    d.title=label;
+    d.style.cssText='width:56px;height:56px;border-radius:8px;cursor:pointer;border:3px solid '+(selected?'#7fa650':'#8884')+';'+style;
+    d.onclick=onpick;
+    return d;
+  }
+  function renderGrid(){
+    grid.innerHTML='';
+    const cur=currentBg();
+    PRESETS.forEach(p=>{
+      const sel=(cur&&cur.type==='preset'&&cur.id===p.id)||(!cur&&p.id==='default');
+      const style=p.id==='default'?'background:#f4f1ea':'background:'+p.css+';background-size:cover';
+      grid.appendChild(thumb(p.name,style,sel,()=>{const s={type:'preset',id:p.id};applyBg(s);saveBg(s);renderGrid()}));
+    });
+    if(cur&&cur.type==='custom'){
+      grid.appendChild(thumb('Your picture',`background:url("${cur.data}") center/cover`,true,()=>{}));
+    }
+  }
+  up.onchange=()=>{
+    const f=up.files&&up.files[0];if(!f)return;
+    const img=new Image();
+    img.onload=()=>{
+      const scale=Math.min(1,1280/img.width);
+      const c=document.createElement('canvas');
+      c.width=Math.round(img.width*scale);c.height=Math.round(img.height*scale);
+      const x=c.getContext('2d');x.drawImage(img,0,0,c.width,c.height);
+      const small=document.createElement('canvas');small.width=16;small.height=16;
+      const sx=small.getContext('2d');sx.drawImage(c,0,0,16,16);
+      const px=sx.getImageData(0,0,16,16).data;let sum=0;
+      for(let i=0;i<px.length;i+=4)sum+=(px[i]*.3+px[i+1]*.59+px[i+2]*.11);
+      const dark=sum/(px.length/4)<140;
+      const data=c.toDataURL('image/jpeg',.8);
+      const s={type:'custom',data,dark};
+      applyBg(s);saveBg(s);renderGrid();
+    };
+    img.onerror=()=>alert('That picture could not be opened');
+    img.src=URL.createObjectURL(f);
+  };
+  // Button in the control row
+  const btn=document.createElement('button');
+  btn.textContent='Background';
+  btn.onclick=()=>{
+    const open=panel.style.display==='none';
+    panel.style.display=open?'block':'none';
+    if(open)renderGrid();
+  };
+  $('rv').parentNode.appendChild(btn);
+  applyBg(currentBg());
+})();
+</script>
 </body></html>
