@@ -943,4 +943,134 @@ window.render=function(){
   applyBg(currentBg());
 })();
 </script>
+<script>
+// Settings menu: sound, piece style, board colors, background, and the opponent/engine buttons.
+(function(){
+  const KEY='chessSettings';
+  const DEF={sound:true,pieces:'classic',board:'classic'};
+  let S=Object.assign({},DEF);
+  try{S=Object.assign({},DEF,JSON.parse(localStorage.getItem(KEY)||'{}'))}catch(e){}
+  const PIECE_STYLES={
+    classic:{name:'Classic',css:''},
+    outlined:{name:'Outlined',css:'drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000)'},
+    soft:{name:'Soft',css:'saturate(.7) brightness(1.08)'}
+  };
+  const BOARD_STYLES={
+    classic:{name:'Classic',l:'#f0d9b5',d:'#b58863'},
+    green:{name:'Green',l:'#eeeed2',d:'#769656'},
+    blue:{name:'Blue',l:'#dee3e6',d:'#8ca2ad'},
+    walnut:{name:'Walnut',l:'#e8d5b5',d:'#8b5a2b'}
+  };
+  function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}}
+  function applyLook(){
+    let st=document.getElementById('pieceStyle');
+    if(!st){st=document.createElement('style');st.id='pieceStyle';document.head.appendChild(st)}
+    const f=PIECE_STYLES[S.pieces]?PIECE_STYLES[S.pieces].css:'';
+    st.textContent=f?`.pc{filter:${f}}`:'';
+    const bs=BOARD_STYLES[S.board]||BOARD_STYLES.classic;
+    document.documentElement.style.setProperty('--l',bs.l);
+    document.documentElement.style.setProperty('--d',bs.d);
+  }
+  // Sound: short tones with the Web Audio API. The browser needs a tap first.
+  let actx=null;
+  function ensureAudio(){
+    try{
+      if(!actx)actx=new (window.AudioContext||window.webkitAudioContext)();
+      if(actx.state==='suspended')actx.resume();
+    }catch(e){}
+  }
+  document.addEventListener('pointerdown',ensureAudio,true);
+  function tone(freq,dur,type,vol,delay){
+    if(!S.sound||!actx)return;
+    try{
+      const t0=actx.currentTime+(delay||0);
+      const o=actx.createOscillator(),g=actx.createGain();
+      o.type=type||'sine';o.frequency.value=freq;
+      g.gain.setValueAtTime(vol||.15,t0);
+      g.gain.exponentialRampToValueAtTime(.0001,t0+dur);
+      o.connect(g);g.connect(actx.destination);
+      o.start(t0);o.stop(t0+dur);
+    }catch(e){}
+  }
+  const sounds={
+    move:()=>tone(520,.08),
+    check:()=>tone(880,.12,'square',.1),
+    end:()=>{tone(330,.2);tone(262,.3,'sine',.15,.18)}
+  };
+  // Play a sound when the status line changes during a game (not while reviewing or replaying).
+  const stEl=$('status');
+  let lastTxt=stEl.textContent;
+  new MutationObserver(()=>{
+    const t=stEl.textContent;
+    if(t===lastTxt)return;
+    lastTxt=t;
+    if(rvView||rep)return;
+    if(/Checkmate|Stalemate|Draw|You win|You lose|resigned/i.test(t))sounds.end();
+    else if(/Check!/.test(t))sounds.check();
+    else if(/to move/.test(t))sounds.move();
+  }).observe(stEl,{childList:true,characterData:true,subtree:true});
+
+  // Settings button and panel
+  const gear=document.createElement('button');
+  gear.textContent='⚙ Settings';
+  const panel=document.createElement('div');
+  panel.id='settingsPanel';
+  panel.style.cssText='display:none;width:calc(var(--s)*8);background:var(--card);border-radius:8px;padding:10px;margin-top:8px;text-align:left';
+  function section(title){
+    const h=document.createElement('div');
+    h.style.cssText='font-weight:700;margin:8px 0 4px';
+    h.textContent=title;
+    const r=document.createElement('div');
+    r.style.cssText='display:flex;flex-wrap:wrap;gap:6px;align-items:center';
+    panel.appendChild(h);panel.appendChild(r);
+    return r;
+  }
+  const soundRow=section('Sound');
+  const soundBtn=document.createElement('button');
+  soundBtn.onclick=()=>{S.sound=!S.sound;save();refresh()};
+  soundRow.appendChild(soundBtn);
+
+  const pieceRow=section('Piece style');
+  const pieceBtns={};
+  Object.keys(PIECE_STYLES).forEach(k=>{
+    const bt=document.createElement('button');
+    bt.textContent=PIECE_STYLES[k].name;
+    bt.onclick=()=>{S.pieces=k;save();refresh()};
+    pieceRow.appendChild(bt);pieceBtns[k]=bt;
+  });
+
+  const boardRow=section('Board colors');
+  const boardBtns={};
+  Object.keys(BOARD_STYLES).forEach(k=>{
+    const bt=document.createElement('button');
+    bt.textContent=BOARD_STYLES[k].name;
+    bt.onclick=()=>{S.board=k;save();refresh()};
+    boardRow.appendChild(bt);boardBtns[k]=bt;
+  });
+
+  // Background: move the existing Background button and its picker into this menu.
+  const bgRow=section('Background');
+  const bgBtn=[...document.querySelectorAll('button')].find(x=>x.textContent==='Background');
+  if(bgBtn)bgRow.appendChild(bgBtn);
+  const bgPanel=document.getElementById('bgpanel');
+  if(bgPanel)bgRow.insertAdjacentElement('afterend',bgPanel);
+
+  // Opponent and engine: move Stockfish vs ChatGPT and the engine picker here.
+  const engRow=section('Opponent and engine');
+  engRow.appendChild($('m2'));
+  const engDiv=$('eng').closest('.row2');
+  if(engDiv)engRow.appendChild(engDiv);
+
+  function refresh(){
+    soundBtn.textContent='Sound: '+(S.sound?'On':'Off');
+    Object.keys(pieceBtns).forEach(k=>{pieceBtns[k].style.outline=k===S.pieces?'2px solid #7fa650':'none'});
+    Object.keys(boardBtns).forEach(k=>{boardBtns[k].style.outline=k===S.board?'2px solid #7fa650':'none'});
+    applyLook();
+  }
+  gear.onclick=()=>{panel.style.display=panel.style.display==='none'?'block':'none'};
+  $('rv').parentNode.appendChild(gear);
+  $('histbox').parentNode.insertBefore(panel,$('histbox'));
+  refresh();
+})();
+</script>
 </body></html>
