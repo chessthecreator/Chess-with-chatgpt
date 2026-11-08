@@ -141,7 +141,7 @@ $('m1').onclick=e=>{pp=0;m1Old(e)};
 $('m2').onclick=e=>{pp=0;m2Old(e)};
 </script>
 <script>
-// Fast game review: one pass over every move, about 0.3 seconds of thinking each.
+// Fast game review: one pass over every move. The time per move comes from the Review depth setting.
 async function reviewFast(){
   const H=hist.slice(),box=$('rvp'),E=epoch;
   if(H.length<2){box.textContent='Play a few moves first.';return}
@@ -149,14 +149,15 @@ async function reviewFast(){
   await ensureEngine();
   if(E!=epoch)return;
   if(!W)return reviewBI();
-  revName=`${eng}, fast review (0.3 s per move)`;
+  const ms=reviewMs();
+  revName=`${eng}, review (${(ms/1000).toFixed(1)} s per move)`;
   const P=H.map(x=>x.pre).concat([cp(b)]);
   const sd=i=>i<H.length?H[i].col:(H[H.length-1].col=='w'?'b':'w');
   const search=async i=>{
     const s=sd(i);
     const ok=P[i].indexOf('wK')>=0&&P[i].indexOf('bK')>=0&&legal(P[i],s).length;
     if(!ok)return{sc:(P[i].indexOf(s+'K')<0||inChk(P[i],s))?-10000:0,sc2:null,best:null};
-    const r=await ask(fenOf(P[i],s),'go movetime 300',2);
+    const r=await ask(fenOf(P[i],s),'go movetime '+ms,2);
     let best=r.best;
     if(best&&best!='(none)'){const f=sqi(best.slice(0,2));if(!P[i][f]||P[i][f][0]!=s)best=null}
     return{sc:r.L[1]?r.L[1].sc:0,sc2:r.L[2]?r.L[2].sc:null,best}};
@@ -946,10 +947,10 @@ window.render=function(){
 })();
 </script>
 <script>
-// Settings menu: sound, piece style, board colors, background, and the opponent/engine buttons.
+// Settings menu: sound, piece style, board colors, review depth, background, and the opponent/engine buttons.
 (function(){
   const KEY='chessSettings';
-  const DEF={sound:true,pieces:'classic',board:'classic'};
+  const DEF={sound:true,pieces:'classic',board:'classic',reviewMs:300};
   let S=Object.assign({},DEF);
   try{S=Object.assign({},DEF,JSON.parse(localStorage.getItem(KEY)||'{}'))}catch(e){}
   const PIECE_STYLES={
@@ -963,6 +964,9 @@ window.render=function(){
     blue:{name:'Blue',l:'#dee3e6',d:'#8ca2ad'},
     walnut:{name:'Walnut',l:'#e8d5b5',d:'#8b5a2b'}
   };
+  const DEPTHS={300:'Fast (0.3 s)',1000:'Deeper (1 s)',2000:'Deep (2 s)',4000:'Deepest (4 s)'};
+  // Used by the game review: time per position in milliseconds.
+  window.reviewMs=()=>Number(S.reviewMs)||300;
   function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}}
   function applyLook(){
     let st=document.getElementById('pieceStyle');
@@ -1050,6 +1054,15 @@ window.render=function(){
     boardRow.appendChild(bt);boardBtns[k]=bt;
   });
 
+  const depthRow=section('Review depth (time per move)');
+  const depthBtns={};
+  Object.keys(DEPTHS).forEach(k=>{
+    const bt=document.createElement('button');
+    bt.textContent=DEPTHS[k];
+    bt.onclick=()=>{S.reviewMs=Number(k);save();refresh()};
+    depthRow.appendChild(bt);depthBtns[k]=bt;
+  });
+
   // Background: move the existing Background button and its picker into this menu.
   const bgRow=section('Background');
   const bgBtn=[...document.querySelectorAll('button')].find(x=>x.textContent==='Background');
@@ -1067,6 +1080,7 @@ window.render=function(){
     soundBtn.textContent='Sound: '+(S.sound?'On':'Off');
     Object.keys(pieceBtns).forEach(k=>{pieceBtns[k].style.outline=k===S.pieces?'2px solid #7fa650':'none'});
     Object.keys(boardBtns).forEach(k=>{boardBtns[k].style.outline=k===S.board?'2px solid #7fa650':'none'});
+    Object.keys(depthBtns).forEach(k=>{depthBtns[k].style.outline=Number(k)===Number(S.reviewMs)?'2px solid #7fa650':'none'});
     applyLook();
   }
   gear.onclick=()=>{panel.style.display=panel.style.display==='none'?'block':'none'};
