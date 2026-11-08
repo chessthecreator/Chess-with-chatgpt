@@ -459,21 +459,9 @@ window.render=function(){_endRender.apply(this,arguments);
 </script>
 <script>
 // Promotion: when a pawn reaches the last rank, you choose a Queen, Rook, Bishop or Knight.
+// White promotes on the top row (squares 0-7), Black on the bottom row (squares 56-63).
 window.promoChoice=null;
-const _promoApp=window.app;
-window.app=function(pos,m){
-  const r=_promoApp(pos,m);
-  const p=pos[m[0]];
-  if(p&&p[1]=='P'&&(m[1]<8||m[1]>=56)&&window.promoChoice){
-    const ch=window.promoChoice;
-    r[m[1]]=p[0]+ch.toUpperCase();
-    const h=[...hist].reverse().find(x=>x.f===m[0]&&x.t===m[1]&&!x.promo);
-    if(h)h.promo=ch;
-    window.promoChoice=null;
-  }
-  return r;
-};
-let promoPending=null,promoBox=null;
+let promoPending=null,promoBox=null,promoBypass=false;
 function hidePromo(){if(promoBox)promoBox.style.display='none'}
 function showPromo(side){
   if(!promoBox){
@@ -503,16 +491,30 @@ function showPromo(side){
 function choosePromo(ch){
   const p=promoPending;promoPending=null;hidePromo();
   if(!p)return;
-  window.promoChoice=ch;
-  try{window.click(p.t)}finally{window.promoChoice=null}
+  promoBypass=true;window.promoChoice=ch;
+  try{window.click(p.t)}finally{promoBypass=false;window.promoChoice=null}
 }
 function cancelPromo(){promoPending=null;hidePromo();sel=null;render()}
 const _promoClick=window.click;
 window.click=function(i){
+  if(promoBypass){
+    // The move is made normally, then the pawn is replaced by the piece that was chosen.
+    const before=hist.length;
+    const r=_promoClick(i);
+    if(hist.length>before){
+      const h=hist[hist.length-1];
+      const ch=window.promoChoice;
+      if(ch&&h.pre[h.f]&&h.pre[h.f][1]==='P'&&(h.t<8||h.t>=56)){
+        b[h.t]=h.col+ch.toUpperCase();
+        h.promo=ch;
+        render();
+      }
+    }
+    return r;
+  }
   if(promoPending)return;
   const side=pp?ppT:'w';
-  if(!over&&sel!=null&&b[sel]&&b[sel][1]=='P'&&b[sel][0]==side&&(side=='w'?i>=56:i<8)&&legal(b,side).some(m=>m[0]==sel&&m[1]==i)){
-    if(!pp&&busy)return _promoClick(i);
+  if(!over&&!busy&&sel!=null&&b[sel]&&b[sel][1]==='P'&&b[sel][0]===side&&(side==='w'?i<8:i>=56)&&legal(b,side).some(m=>m[0]==sel&&m[1]==i)){
     promoPending={f:sel,t:i};
     showPromo(side);
     stat('Choose a piece to promote to');
@@ -652,9 +654,8 @@ function applyRemote(moves){
     if(!mv)break;
     say(`${ppT=='w'?'White':'Black'}: ${NM[b[f][1]]} ${sq(f)}→${sq(t)}${pr?' promotes to '+NM[pr.toUpperCase()]:''}`);
     hist.push({pre:cp(b),col:ppT,f,t,promo:pr});
-    window.promoChoice=pr||null;
     b=app(b,mv);
-    window.promoChoice=null;
+    if(pr)b[t]=ppT+pr.toUpperCase();
     last=[t];ppT=ppT=='w'?'b':'w';changed=true;
     if(!legal(b,ppT).length){over=true;stat(inChk(b,ppT)?`Checkmate! ${ppT=='w'?'Black':'White'} wins.`:'Stalemate. Draw.');break}
     stat((inChk(b,ppT)?'Check! ':'')+(ppT=='w'?'White':'Black')+' to move');
