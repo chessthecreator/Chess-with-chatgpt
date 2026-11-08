@@ -579,4 +579,50 @@ async function loadHistory(){
   }catch(e){msg('History failed: '+e.message)}
 }
 </script>
+<script>
+// Draw rules: 50-move rule (50 moves each without a capture or pawn move), threefold repetition,
+// and insufficient material. Works in live games; the game ends as a draw and is saved as a draw.
+(function(){
+  const _stat=window.stat;
+  window.stat=function(t){
+    if(over&&window.drawText&&!rvView&&!rep)t=window.drawText;
+    return _stat(t);
+  };
+})();
+const _botBase=window.bot;
+window.bot=function(force){if(over)return;return _botBase.apply(this,arguments)};
+function drawReason(){
+  const pcs=[];
+  b.forEach((p,i)=>{if(p&&p[1]!='K')pcs.push({t:p[1],i})});
+  if(pcs.length===0)return 'Draw by insufficient material';
+  if(pcs.length===1&&(pcs[0].t=='B'||pcs[0].t=='N'))return 'Draw by insufficient material';
+  if(pcs.every(p=>p.t=='B')){
+    const cols=new Set(pcs.map(p=>((p.i>>3)+(p.i&7))%2));
+    if(cols.size===1)return 'Draw by insufficient material';
+  }
+  let n=0;
+  for(let i=hist.length-1;i>=0;i--){
+    const x=hist[i];
+    const pawn=x.pre[x.f]&&x.pre[x.f][1]=='P';
+    const cap=!!x.pre[x.t];
+    if(pawn||cap)break;
+    n++;
+  }
+  if(n>=100)return 'Draw by 50-move rule';
+  const key=encodeBoard(b)+(hist.length%2==0?'w':'b');
+  let cnt=1;
+  for(const x of hist){if(encodeBoard(x.pre)+x.col==key)cnt++}
+  if(cnt>=3)return 'Draw by threefold repetition';
+  return null;
+}
+const _drawRender=window.render;
+window.render=function(){
+  if(!over&&!rep&&!rvView&&hist.length){
+    const r=drawReason();
+    if(r){over=true;window.drawText=r;stat(r)}
+  }
+  if(!over)window.drawText=null;
+  return _drawRender.apply(this,arguments);
+};
+</script>
 </body></html>
