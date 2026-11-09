@@ -718,7 +718,7 @@ window.saveGameCloud=async rec=>{
     const s=await getDoc(rref);
     const cur=s.exists()?s.data():{elo:START_ELO,games:0,wins:0,losses:0,draws:0,accSum:0,accCount:0};
     const exp=1/(1+Math.pow(10,(oppElo-cur.elo)/400));
-    const delta=Math.round(K*(my-exp));
+    const delta=Math.round((cur.games<30?40:K)*(my-exp));
     rec.eloBefore=cur.elo;rec.eloDelta=delta;rec.eloAfter=cur.elo+delta;rec.rated=true;
     next={...cur,elo:cur.elo+delta,games:cur.games+1,wins:cur.wins+(my==1?1:0),draws:cur.draws+(my==.5?1:0),losses:cur.losses+(my==0?1:0)};
   }else if(rec.mode==='vs ChatGPT'){
