@@ -538,8 +538,20 @@ import {getAuth,createUserWithEmailAndPassword,signInWithEmailAndPassword,signOu
 import {getFirestore,collection,addDoc,getDocs,query,where,limit,orderBy,doc,updateDoc,getDoc,setDoc,onSnapshot,runTransaction} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 const app=initializeApp({apiKey:"AIzaSyBB1VVXGd2JmEZ9sCDiWj5u2Z6C8oq_fNI",authDomain:"chess-chatgpt.firebaseapp.com",projectId:"chess-chatgpt",storageBucket:"chess-chatgpt.firebasestorage.app",messagingSenderId:"859327563122",appId:"1:859327563122:web:78624d73fbf64d4a5749eb"});
 const auth=getAuth(app),db=getFirestore(app);
-let user=null,profile=null,gid=null,unsub=null,myCol=null,oppElo=800,oppName='';
-const K=32,START_ELO=800;
+let user=null,profile=null,gid=null,unsub=null,myCol=null,oppElo=844,oppName='';
+// Rating: Glicko-1 style. Starts at 844 (Chess.com rapid) with rating deviation 50 (established).
+const START_ELO=844,START_RD=50,OPP_RD=50;
+const Q=Math.log(10)/400;
+function gFn(rd){return 1/Math.sqrt(1+3*Q*Q*rd*rd/(Math.PI*Math.PI))}
+// One game: r = my rating, rd = my deviation, rj/rdj = opponent's, s = my score (1, 0.5, 0).
+function glickoUpdate(r,rd,rj,rdj,s){
+  const g=gFn(rdj),E=1/(1+Math.pow(10,-g*(r-rj)/400));
+  const d2=1/(Q*Q*g*g*E*(1-E));
+  const prec=1/(rd*rd)+1/d2;
+  const newR=r+(Q/prec)*g*(s-E);
+  const newRd=Math.sqrt(1/prec);
+  return {r:Math.round(newR),rd:Math.min(350,Math.max(30,newRd))};
+}
 const el=id=>document.getElementById(id);
 const msg=t=>{el('acctStatus').textContent=t};
 // Shows a result right above the review, so it's easy to see.
@@ -554,14 +566,16 @@ function showRating(){
   const box=el('ratingBox');if(!box)return;
   if(!user||!profile){box.style.display='none';return}
   const acc=profile.accCount?(profile.accSum/profile.accCount).toFixed(1)+'%':'–';
+  const rd=Math.round(profile.rd||START_RD);
   box.style.display='block';
-  box.textContent=`Online rating ${profile.elo} · ${profile.games} online games (${profile.wins}W ${profile.draws}D ${profile.losses}L) · avg accuracy ${acc}`;
+  box.textContent=`Online rating ${profile.elo} (±${Math.round(2*rd)}) · ${profile.games} online games (${profile.wins}W ${profile.draws}D ${profile.losses}L) · avg accuracy ${acc}`;
 }
 async function loadProfile(){
   if(!user){profile=null;showRating();return}
   try{
     const s=await getDoc(doc(db,'users',user.uid,'profile','rating'));
-    profile=s.exists()?s.data():{elo:START_ELO,games:0,wins:0,losses:0,draws:0,accSum:0,accCount:0};
+    profile=s.exists()?s.data():{elo:START_ELO,rd:START_RD,games:0,wins:0,losses:0,draws:0,accSum:0,accCount:0};
+    if(profile.rd==null)profile.rd=START_RD;
   }catch(e){profile=null;msg('Rating load failed: '+e.message)}
   showRating();
 }
@@ -722,11 +736,12 @@ window.saveGameCloud=async rec=>{
     rec.score=my;
     rref=doc(db,'users',user.uid,'profile','rating');
     const s=await getDoc(rref);
-    const cur=s.exists()?s.data():{elo:START_ELO,games:0,wins:0,losses:0,draws:0,accSum:0,accCount:0};
-    const exp=1/(1+Math.pow(10,(oppElo-cur.elo)/400));
-    const delta=Math.round((cur.games<30?40:K)*(my-exp));
-    rec.eloBefore=cur.elo;rec.eloDelta=delta;rec.eloAfter=cur.elo+delta;rec.rated=true;
-    next={...cur,elo:cur.elo+delta,games:cur.games+1,wins:cur.wins+(my==1?1:0),draws:cur.draws+(my==.5?1:0),losses:cur.losses+(my==0?1:0)};
+    const cur=s.exists()?s.data():{elo:START_ELO,rd:START_RD,games:0,wins:0,losses:0,draws:0,accSum:0,accCount:0};
+    const curRd=cur.rd==null?START_RD:cur.rd;
+    const up=glickoUpdate(cur.elo,curRd,oppElo,OPP_RD,my);
+    const delta=up.r-cur.elo;
+    rec.eloBefore=cur.elo;rec.eloDelta=delta;rec.eloAfter=up.r;rec.rated=true;
+    next={...cur,elo:up.r,rd:up.rd,games:cur.games+1,wins:cur.wins+(my==1?1:0),draws:cur.draws+(my==.5?1:0),losses:cur.losses+(my==0?1:0)};
   }else if(rec.mode==='vs ChatGPT'){
     // Games against ChatGPT are saved to history but do not change the rating.
     delete rec.score;
