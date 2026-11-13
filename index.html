@@ -539,9 +539,17 @@ import {getFirestore,collection,addDoc,getDocs,query,where,limit,orderBy,doc,upd
 const app=initializeApp({apiKey:"AIzaSyBB1VVXGd2JmEZ9sCDiWj5u2Z6C8oq_fNI",authDomain:"chess-chatgpt.firebaseapp.com",projectId:"chess-chatgpt",storageBucket:"chess-chatgpt.firebasestorage.app",messagingSenderId:"859327563122",appId:"1:859327563122:web:78624d73fbf64d4a5749eb"});
 const auth=getAuth(app),db=getFirestore(app);
 let user=null,profile=null,gid=null,unsub=null,myCol=null,oppElo=844,oppName='';
-// Rating: Glicko-1 style. Starts at 844 (Chess.com rapid) with rating deviation 50 (established).
+// Ratings: Glicko-style, one rating per time control. Starts at 844 with rating deviation 50.
 const START_ELO=844,START_RD=50,OPP_RD=50;
+const TCS={bullet:'Bullet 1+0',blitz:'Blitz 3+2',rapid:'Rapid 10+0',daily:'Daily 1 day/move'};
+let tc='rapid';
 const Q=Math.log(10)/400;
+// Inactivity: uncertainty grows while you wait between rated games (about 10 points per day, capped at 350).
+function inactiveRd(rd,last){
+  if(!last)return rd;
+  const days=Math.max(0,(Date.now()-last)/86400000);
+  return Math.min(350,Math.sqrt(rd*rd+100*days));
+}
 function gFn(rd){return 1/Math.sqrt(1+3*Q*Q*rd*rd/(Math.PI*Math.PI))}
 // One game: r = my rating, rd = my deviation, rj/rdj = opponent's, s = my score (1, 0.5, 0).
 function glickoUpdate(r,rd,rj,rdj,s){
@@ -551,6 +559,16 @@ function glickoUpdate(r,rd,rj,rdj,s){
   const newR=r+(Q/prec)*g*(s-E);
   const newRd=Math.sqrt(1/prec);
   return {r:Math.round(newR),rd:Math.min(350,Math.max(30,newRd))};
+}
+function blankRating(){return {elo:START_ELO,rd:START_RD,games:0,wins:0,losses:0,draws:0,lastGame:0}}
+// Converts whatever is saved (old single rating or the new per-time-control format) into the new format.
+function normalize(raw){
+  const p={accSum:(raw&&raw.accSum)||0,accCount:(raw&&raw.accCount)||0};
+  for(const t of Object.keys(TCS)){p[t]=Object.assign(blankRating(),(raw&&raw[t])||{})}
+  if(raw&&raw.elo!=null&&!(raw.rapid)){
+    Object.assign(p.rapid,{elo:raw.elo,rd:raw.rd||START_RD,games:raw.games||0,wins:raw.wins||0,losses:raw.losses||0,draws:raw.draws||0});
+  }
+  return p;
 }
 const el=id=>document.getElementById(id);
 const msg=t=>{el('acctStatus').textContent=t};
@@ -565,17 +583,20 @@ function note(t,ok){
 function showRating(){
   const box=el('ratingBox');if(!box)return;
   if(!user||!profile){box.style.display='none';return}
+  const d=profile[tc];
+  const rd=inactiveRd(d.rd,d.lastGame);
   const acc=profile.accCount?(profile.accSum/profile.accCount).toFixed(1)+'%':'–';
-  const rd=Math.round(profile.rd||START_RD);
+  const others=Object.keys(TCS).map(t=>`${t[0].toUpperCase()+t.slice(1)} ${profile[t].elo}`).join(' · ');
   box.style.display='block';
-  box.textContent=`Online rating ${profile.elo} (±${Math.round(2*rd)}) · ${profile.games} online games (${profile.wins}W ${profile.draws}D ${profile.losses}L) · avg accuracy ${acc}`;
+  box.textContent=`${TCS[tc]} rating ${d.elo} (±${Math.round(2*rd)}) · ${d.games} games (${d.wins}W ${d.draws}D ${d.losses}L) · avg accuracy ${acc}`;
+  box.textContent+=`\n${others}`;
+  box.style.whiteSpace='pre-line';
 }
 async function loadProfile(){
   if(!user){profile=null;showRating();return}
   try{
     const s=await getDoc(doc(db,'users',user.uid,'profile','rating'));
-    profile=s.exists()?s.data():{elo:START_ELO,rd:START_RD,games:0,wins:0,losses:0,draws:0,accSum:0,accCount:0};
-    if(profile.rd==null)profile.rd=START_RD;
+    profile=normalize(s.exists()?s.data():null);
   }catch(e){profile=null;msg('Rating load failed: '+e.message)}
   showRating();
 }
@@ -601,6 +622,12 @@ function ob(t){
 const rowBtns=el('rv').parentNode;
 const onlineBtn=document.createElement('button');onlineBtn.textContent='Play online';onlineBtn.onclick=()=>findGame();rowBtns.appendChild(onlineBtn);
 const resignBtn=document.createElement('button');resignBtn.textContent='Resign';resignBtn.style.display='none';resignBtn.onclick=()=>resign();rowBtns.appendChild(resignBtn);
+// Time control picker: each one has its own rating and only matches with players on the same time control.
+const tcSel=document.createElement('select');tcSel.id='tcSel';tcSel.style.cssText='padding:7px;font-size:.8rem;margin:6px;border-radius:6px';
+Object.keys(TCS).forEach(k=>{const o=document.createElement('option');o.value=k;o.textContent=TCS[k];tcSel.appendChild(o)});
+tcSel.value=tc;
+tcSel.onchange=()=>{if(window.onlineActive&&!over){tcSel.value=tc;ob('Finish or resign the online game first.');return}tc=tcSel.value;showRating()};
+rowBtns.appendChild(tcSel);
 function refreshButtons(){
   resignBtn.style.display=(window.onlineActive&&!over)?'':'none';
   resignBtn.textContent=window.onlineReady?'Resign':'Cancel search';
@@ -618,14 +645,14 @@ async function findGame(){
   if(!user){ob('Sign in first to play online.');return}
   if(window.onlineActive&&!over){ob('You are already in a game.');return}
   leaveOnline();
-  ob('Looking for an opponent…');
+  const myTc=tc;
+  ob(`Looking for a ${TCS[myTc]} opponent…`);
   try{
     // Cancel any old searches of yours that are still waiting.
     const mine=await getDocs(query(collection(db,'online'),where('white','==',user.uid),where('status','==','waiting')));
     for(const d of mine.docs){await updateDoc(doc(db,'online',d.id),{status:'cancelled'})}
-    const ps=await getDoc(doc(db,'users',user.uid,'profile','rating'));
-    const myElo=ps.exists()?ps.data().elo:START_ELO;
-    const snap=await getDocs(query(collection(db,'online'),where('status','==','waiting'),limit(25)));
+    const myElo=profile?profile[myTc].elo:START_ELO;
+    const snap=await getDocs(query(collection(db,'online'),where('status','==','waiting'),where('tc','==',myTc),limit(25)));
     let target=null;snap.forEach(d=>{if(!target&&d.data().white!==user.uid)target=d.id});
     if(target){
       try{
@@ -635,15 +662,16 @@ async function findGame(){
           tx.update(ref,{black:user.uid,blackElo:myElo,blackName:user.email,status:'active'});
         });
       }catch(e){ob('That game was just taken. Press Play online again.');return}
-      joinGame(target,'b');
+      joinGame(target,'b',myTc);
       return;
     }
-    const ref=await addDoc(collection(db,'online'),{white:user.uid,whiteElo:myElo,whiteName:user.email,black:null,blackName:null,blackElo:null,status:'waiting',moves:[],result:null,created:Date.now()});
-    joinGame(ref.id,'w');
+    const ref=await addDoc(collection(db,'online'),{tc:myTc,white:user.uid,whiteElo:myElo,whiteName:user.email,black:null,blackName:null,blackElo:null,status:'waiting',moves:[],result:null,created:Date.now()});
+    joinGame(ref.id,'w',myTc);
   }catch(e){ob('Online error: '+e.message)}
 }
-function joinGame(id,col){
+function joinGame(id,col,myTc){
   gid=id;myCol=col;
+  window.onlineTc=myTc;
   window.onlineActive=true;window.onlineMy=col;window.onlineReady=false;window.onlineResult=null;
   startBoard();
   unsub=onSnapshot(doc(db,'online',id),s=>{const d=s.data();if(d)onRemote(d)},e=>ob('Connection problem: '+e.message));
@@ -726,22 +754,27 @@ document.addEventListener('click',e=>{
 // ---------- Saving games and ratings ----------
 window.saveGameCloud=async rec=>{
   if(!user){msg('Sign in to save games (this game was not saved)');return false}
-  let next=null,rref=null;
+  let nextProfile=null;
   if(window.onlineActive){
+    const myTc=window.onlineTc||tc;
     if(!window.onlineResult)window.onlineResult=resultNow();
     rec.mode='online';
+    rec.tc=myTc;
     rec.myColor=window.onlineMy;
     const res=window.onlineResult;
     const my=res==='d'?.5:(res===window.onlineMy?1:0);
     rec.score=my;
-    rref=doc(db,'users',user.uid,'profile','rating');
+    const rref=doc(db,'users',user.uid,'profile','rating');
     const s=await getDoc(rref);
-    const cur=s.exists()?s.data():{elo:START_ELO,rd:START_RD,games:0,wins:0,losses:0,draws:0,accSum:0,accCount:0};
-    const curRd=cur.rd==null?START_RD:cur.rd;
-    const up=glickoUpdate(cur.elo,curRd,oppElo,OPP_RD,my);
+    const prof=normalize(s.exists()?s.data():null);
+    const cur=prof[myTc];
+    const rd0=inactiveRd(cur.rd,cur.lastGame);
+    const up=glickoUpdate(cur.elo,rd0,oppElo,OPP_RD,my);
     const delta=up.r-cur.elo;
     rec.eloBefore=cur.elo;rec.eloDelta=delta;rec.eloAfter=up.r;rec.rated=true;
-    next={...cur,elo:up.r,rd:up.rd,games:cur.games+1,wins:cur.wins+(my==1?1:0),draws:cur.draws+(my==.5?1:0),losses:cur.losses+(my==0?1:0)};
+    prof[myTc]={...cur,elo:up.r,rd:up.rd,games:cur.games+1,
+      wins:cur.wins+(my==1?1:0),draws:cur.draws+(my==.5?1:0),losses:cur.losses+(my==0?1:0),lastGame:Date.now()};
+    nextProfile={prof,rref};
   }else if(rec.mode==='vs ChatGPT'){
     // Games against ChatGPT are saved to history but do not change the rating.
     delete rec.score;
@@ -753,10 +786,10 @@ window.saveGameCloud=async rec=>{
     window.currentMovesKey=rec.moves.join(',');
     window.currentMode=rec.mode;
     window.currentMyColor=rec.myColor||'w';
-    if(next){
-      await setDoc(rref,next);
-      profile=next;showRating();
-      msg(`Online game saved · rating ${rec.eloBefore} → ${rec.eloAfter} (${rec.eloDelta>=0?'+':''}${rec.eloDelta}). Tap Game review to save its labels.`);
+    if(nextProfile){
+      await setDoc(nextProfile.rref,nextProfile.prof);
+      profile=nextProfile.prof;showRating();
+      msg(`Online game saved · ${TCS[rec.tc]} rating ${rec.eloBefore} → ${rec.eloAfter} (${rec.eloDelta>=0?'+':''}${rec.eloDelta}). Tap Game review to save its labels.`);
     }else{
       msg('Game saved to your history. Tap Game review to save its labels.');
     }
@@ -808,7 +841,8 @@ async function loadHistory(){
       row.style.cssText='padding:5px 0;cursor:pointer;border-bottom:1px solid #8884';
       const tag=!r.analysis?'':(r.rv===2?' · reviewed':' · old review (re-review for new rules)');
       const rt=r.rated?` · rating ${r.eloDelta>=0?'+':''}${r.eloDelta}`:'';
-      row.textContent=new Date(r.created).toLocaleDateString()+' · '+r.mode+' · '+r.result+rt+tag;
+      const tcTxt=r.tc?` · ${TCS[r.tc]||r.tc}`:'';
+      row.textContent=new Date(r.created).toLocaleDateString()+tcTxt+' · '+r.mode+' · '+r.result+rt+tag;
       row.onclick=()=>{const rr=Object.assign({id:d.id},r);window.openGame(rr)};
       list.appendChild(row);
     });
