@@ -1,35 +1,33 @@
-// skins.js: three board skins (Classic, Wood, Night). Adds a "Skin" section to Settings.
-// Changes board colors, background, and a soft board shadow. Move hints and highlights are unchanged.
+// skins.js: three board skins (No skin, Wood, Night).
+// A skin only changes the board squares, the board shadow and the piece look. It does not change the background.
+// "No skin" removes it and brings back your Board colors setting.
 (function(){
   const KEY='chessSkin';
   const SKINS={
-    classic:{name:'Classic',l:'#f0d9b5',d:'#b58863',bg:'',piece:'',board:'0 4px 14px rgba(0,0,0,.25)'},
-    wood:{name:'Wood',l:'#ecd4a2',d:'#a86f3d',
-      bg:'repeating-linear-gradient(90deg,rgba(0,0,0,.07) 0 2px,transparent 2px 14px),linear-gradient(#6b4423,#4a2e18)',
-      piece:'sepia(.12) saturate(1.05)',board:'0 6px 18px rgba(0,0,0,.45)',
-      dark:{bg:'#2a1c10',fg:'#f2e6d0',mut:'#d6c3a0',card:'rgba(30,20,10,.6)'}},
-    night:{name:'Night',l:'#7d8aa0',d:'#4a5568',
-      bg:'radial-gradient(circle at 50% 0%,#24304a,#0b1020 70%)',
-      piece:'drop-shadow(0 0 1px #fff) drop-shadow(0 0 2px rgba(255,255,255,.5))',board:'0 0 22px rgba(120,160,255,.25)',
-      dark:{bg:'#0b1020',fg:'#e6ecff',mut:'#a9b4cf',card:'rgba(10,14,30,.6)'}}
+    classic:{name:'No skin'},
+    wood:{name:'Wood',l:'#ecd4a2',d:'#a86f3d',shadow:'0 6px 16px rgba(0,0,0,.35)',piece:'sepia(.12) saturate(1.05)'},
+    night:{name:'Night',l:'#7d8aa0',d:'#4a5568',shadow:'0 0 20px rgba(120,160,255,.35)',piece:'drop-shadow(0 0 1px #fff) drop-shadow(0 0 2px rgba(255,255,255,.5))'}
   };
+  const BOARDS={classic:['#f0d9b5','#b58863'],green:['#eeeed2','#769656'],blue:['#dee3e6','#8ca2ad'],walnut:['#e8d5b5','#8b5a2b']};
+  function boardSetting(){
+    try{const s=JSON.parse(localStorage.getItem('chessSettings')||'{}');return BOARDS[s.board]||BOARDS.classic}
+    catch(e){return BOARDS.classic}
+  }
   function apply(k){
     const s=SKINS[k]||SKINS.classic;
-    const de=document.documentElement,bd=document.body;
-    de.style.setProperty('--l',s.l);
-    de.style.setProperty('--d',s.d);
-    if(s.dark){
-      de.style.setProperty('--bg',s.dark.bg);
-      de.style.setProperty('--fg',s.dark.fg);
-      de.style.setProperty('--mut',s.dark.mut);
-      de.style.setProperty('--card',s.dark.card);
-    }else{
-      ['--bg','--fg','--mut','--card'].forEach(v=>de.style.removeProperty(v));
-    }
-    bd.style.background=s.bg;
+    const de=document.documentElement;
     let st=document.getElementById('skinStyle');
     if(!st){st=document.createElement('style');st.id='skinStyle';document.head.appendChild(st)}
-    st.textContent=`#board{box-shadow:${s.board}}`+(s.piece?`.pc{filter:${s.piece}}`:'');
+    if(!s.l){
+      const bc=boardSetting();
+      de.style.setProperty('--l',bc[0]);
+      de.style.setProperty('--d',bc[1]);
+      st.textContent='';
+    }else{
+      de.style.setProperty('--l',s.l);
+      de.style.setProperty('--d',s.d);
+      st.textContent=`#board{box-shadow:${s.shadow}}.pc{filter:${s.piece}}`;
+    }
     document.querySelectorAll('.skinBtn').forEach(b=>{b.style.outline=b.dataset.k===k?'2px solid #7fa650':'none'});
   }
   function save(k){try{localStorage.setItem(KEY,k)}catch(e){}}
